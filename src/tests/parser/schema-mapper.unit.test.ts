@@ -53,6 +53,30 @@ describe("mapOpenApiSchemaToJsonSchema", () => {
     assert.deepStrictEqual(result.items, { type: "string" });
   });
 
+  it("maps object additionalProperties schema", () => {
+    const result = mapOpenApiSchemaToJsonSchema({
+      type: "object",
+      additionalProperties: { type: "integer" },
+    } as OpenAPIV3.SchemaObject);
+
+    assert.deepStrictEqual(result, {
+      type: "object",
+      additionalProperties: { type: "number" },
+    });
+  });
+
+  it("maps boolean additionalProperties", () => {
+    const result = mapOpenApiSchemaToJsonSchema({
+      type: "object",
+      additionalProperties: true,
+    } as OpenAPIV3.SchemaObject);
+
+    assert.deepStrictEqual(result, {
+      type: "object",
+      additionalProperties: true,
+    });
+  });
+
   it("handles enum", () => {
     const result = mapOpenApiSchemaToJsonSchema({
       type: "string",
@@ -99,6 +123,14 @@ describe("mapOpenApiSchemaToJsonSchema", () => {
       description: "A test field",
     } as OpenAPIV3.SchemaObject);
     assert.equal(result.description, "A test field");
+  });
+
+  it("carries over format", () => {
+    const result = mapOpenApiSchemaToJsonSchema({
+      type: "string",
+      format: "binary",
+    } as OpenAPIV3.SchemaObject);
+    assert.deepStrictEqual(result, { type: "string", format: "binary" });
   });
 
   it("handles oneOf", () => {

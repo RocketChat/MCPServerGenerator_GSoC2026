@@ -84,12 +84,12 @@ export function extractFullEndpoints(
       let requestBody: FullEndpoint["requestBody"];
       if (operation.requestBody) {
         const rb = operation.requestBody as OpenAPIV3.RequestBodyObject;
-        const jsonContent = rb.content?.["application/json"];
-        if (jsonContent?.schema) {
+        const resolved = resolveRequestBodyContent(rb);
+        if (resolved) {
           requestBody = {
-            contentType: "application/json",
+            contentType: resolved.contentType,
             schema: mapOpenApiSchemaToJsonSchema(
-              jsonContent.schema as OpenAPIV3.SchemaObject,
+              resolved.schema,
               undefined,
               maxDepth,
             ),
@@ -100,18 +100,22 @@ export function extractFullEndpoints(
 
       let responseSchema: JSONSchema7 | undefined;
       if (operation.responses) {
-        const successResp =
-          (operation.responses["200"] as
+        const successCodes = Object.keys(operation.responses)
+          .filter((code) => /^2\d{2}$/.test(code))
+          .sort();
+
+        for (const code of successCodes) {
+          const resp = operation.responses[code] as
             | OpenAPIV3.ResponseObject
-            | undefined) ??
-          (operation.responses["201"] as OpenAPIV3.ResponseObject | undefined);
-        if (successResp?.content?.["application/json"]?.schema) {
-          responseSchema = mapOpenApiSchemaToJsonSchema(
-            successResp.content["application/json"]
-              .schema as OpenAPIV3.SchemaObject,
-            undefined,
-            maxDepth,
-          );
+            | undefined;
+          if (resp?.content?.["application/json"]?.schema) {
+            responseSchema = mapOpenApiSchemaToJsonSchema(
+              resp.content["application/json"].schema as OpenAPIV3.SchemaObject,
+              undefined,
+              maxDepth,
+            );
+            break;
+          }
         }
       }
 
@@ -222,10 +226,10 @@ function buildInputSchema(
 
   if (requestBody && !("$ref" in requestBody)) {
     const rb = requestBody as OpenAPIV3.RequestBodyObject;
-    const jsonContent = rb.content?.["application/json"];
-    if (jsonContent?.schema) {
+    const resolved = resolveRequestBodyContent(rb);
+    if (resolved) {
       properties["requestBody"] = mapOpenApiSchemaToJsonSchema(
-        jsonContent.schema as OpenAPIV3.SchemaObject,
+        resolved.schema,
         undefined,
         maxDepth,
       );
@@ -238,4 +242,36 @@ function buildInputSchema(
     properties,
     ...(required.length > 0 && { required }),
   };
+}
+
+const CONTENT_TYPE_PRIORITY = [
+  "application/json",
+  "multipart/form-data",
+] as const;
+
+function resolveRequestBodyContent(
+  rb: OpenAPIV3.RequestBodyObject,
+): { contentType: string; schema: OpenAPIV3.SchemaObject } | undefined {
+  for (const contentType of CONTENT_TYPE_PRIORITY) {
+    const media = rb.content?.[contentType];
+    if (media?.schema) {
+      return {
+        contentType,
+        schema: media.schema as OpenAPIV3.SchemaObject,
+      };
+    }
+  }
+
+  if (rb.content) {
+    for (const [contentType, media] of Object.entries(rb.content)) {
+      if (media?.schema) {
+        return {
+          contentType,
+          schema: media.schema as OpenAPIV3.SchemaObject,
+        };
+      }
+    }
+  }
+
+  return undefined;
 }

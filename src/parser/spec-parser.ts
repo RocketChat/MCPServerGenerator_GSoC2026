@@ -276,7 +276,7 @@ export class SpecParser {
       mkdirSync(this.cacheDir, { recursive: true });
       writeFileSync(join(this.cacheDir, `${domain}.json`), JSON.stringify(api));
     } catch {
-      // Cache writes are best effort; callers can still fetch specs next time.
+      // Best-effort caching: write failures are non-fatal.
     }
   }
 

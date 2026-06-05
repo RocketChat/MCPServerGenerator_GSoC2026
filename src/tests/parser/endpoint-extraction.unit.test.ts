@@ -255,6 +255,226 @@ describe("extractFullEndpoints", () => {
     });
   });
 
+  it("extracts multipart/form-data request body when no application/json is present", () => {
+    const spec = makeSpec({
+      "/rooms/{rid}/media": {
+        post: {
+          operationId: "upload-media",
+          parameters: [
+            {
+              name: "rid",
+              in: "path",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          requestBody: {
+            required: true,
+            content: {
+              "multipart/form-data": {
+                schema: {
+                  type: "object",
+                  required: ["file"],
+                  properties: {
+                    file: {
+                      type: "string",
+                      format: "binary",
+                      description: "The file to upload",
+                    },
+                    description: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: { "200": { description: "OK" } },
+        },
+      },
+    });
+
+    const [endpoint] = extractFullEndpoints(
+      spec,
+      "rooms",
+      new Set(["upload-media"]),
+    );
+
+    assert.equal(endpoint.requestBody?.contentType, "multipart/form-data");
+    assert.equal(endpoint.requestBody?.required, true);
+    assert.ok(endpoint.requestBody?.schema.properties);
+
+    const inputProps = endpoint.inputSchema.properties as Record<string, any>;
+    assert.ok(
+      inputProps.requestBody,
+      "inputSchema should include requestBody for multipart",
+    );
+    assert.deepStrictEqual(inputProps.requestBody.properties.file, {
+      type: "string",
+      format: "binary",
+      description: "The file to upload",
+    });
+  });
+
+  it("prefers application/json over multipart/form-data when both are present", () => {
+    const spec = makeSpec({
+      "/messages": {
+        post: {
+          operationId: "send-message",
+          requestBody: {
+            content: {
+              "application/json": {
+                schema: {
+                  type: "object",
+                  properties: { text: { type: "string" } },
+                },
+              },
+              "multipart/form-data": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    file: { type: "string", format: "binary" },
+                  },
+                },
+              },
+            },
+          },
+          responses: { "200": { description: "OK" } },
+        },
+      },
+    });
+
+    const [endpoint] = extractFullEndpoints(
+      spec,
+      "messaging",
+      new Set(["send-message"]),
+    );
+
+    assert.equal(endpoint.requestBody?.contentType, "application/json");
+  });
+
+  it("falls back to the first request content type with a schema", () => {
+    const spec = makeSpec({
+      "/forms": {
+        post: {
+          operationId: "submit-form",
+          requestBody: {
+            content: {
+              "application/x-www-form-urlencoded": {
+                schema: {
+                  type: "object",
+                  properties: {
+                    token: { type: "string" },
+                  },
+                },
+              },
+            },
+          },
+          responses: { "200": { description: "OK" } },
+        },
+      },
+    });
+
+    const [endpoint] = extractFullEndpoints(
+      spec,
+      "miscellaneous",
+      new Set(["submit-form"]),
+    );
+
+    assert.equal(
+      endpoint.requestBody?.contentType,
+      "application/x-www-form-urlencoded",
+    );
+    assert.ok(endpoint.inputSchema.properties?.requestBody);
+  });
+
+  it("extracts response schema from 206 when no 200/201 is present", () => {
+    const spec = makeSpec({
+      "/analytics/service-time": {
+        get: {
+          operationId: "get-service-time",
+          responses: {
+            "206": {
+              description: "Partial Content",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: {
+                      departments: {
+                        type: "array",
+                        items: { type: "object" },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const [endpoint] = extractFullEndpoints(
+      spec,
+      "omnichannel",
+      new Set(["get-service-time"]),
+    );
+
+    assert.ok(
+      endpoint.responseSchema,
+      "should extract schema from 206 response",
+    );
+    assert.deepStrictEqual(endpoint.responseSchema, {
+      type: "object",
+      properties: {
+        departments: { type: "array", items: { type: "object" } },
+      },
+    });
+  });
+
+  it("prefers 200 over 206 when both have JSON schemas", () => {
+    const spec = makeSpec({
+      "/data": {
+        get: {
+          operationId: "get-data",
+          responses: {
+            "200": {
+              description: "OK",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { full: { type: "boolean" } },
+                  },
+                },
+              },
+            },
+            "206": {
+              description: "Partial",
+              content: {
+                "application/json": {
+                  schema: {
+                    type: "object",
+                    properties: { partial: { type: "boolean" } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    const [endpoint] = extractFullEndpoints(
+      spec,
+      "miscellaneous",
+      new Set(["get-data"]),
+    );
+
+    const props = endpoint.responseSchema?.properties as Record<string, any>;
+    assert.ok(props.full, "should use 200 response, not 206");
+    assert.equal(props.partial, undefined);
+  });
+
   it("uses global security unless operation security is provided", () => {
     const spec: OpenAPIV3.Document = {
       openapi: "3.0.0",

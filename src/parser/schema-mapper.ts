@@ -38,6 +38,10 @@ export function mapOpenApiSchemaToJsonSchema(
       jsonSchema.description = schema.description;
     }
 
+    if (schema.format) {
+      jsonSchema.format = schema.format;
+    }
+
     if (schema.nullable && typeof jsonSchema.type === "string") {
       jsonSchema.type = [jsonSchema.type as JSONSchema7TypeName, "null"];
     }
@@ -66,6 +70,18 @@ export function mapOpenApiSchemaToJsonSchema(
 
     if (schema.required) {
       jsonSchema.required = schema.required;
+    }
+
+    if (schema.additionalProperties !== undefined) {
+      jsonSchema.additionalProperties =
+        typeof schema.additionalProperties === "object"
+          ? mapOpenApiSchemaToJsonSchema(
+              schema.additionalProperties as OpenAPIV3.SchemaObject,
+              seen,
+              maxDepth,
+              currentDepth + 1,
+            )
+          : schema.additionalProperties;
     }
 
     if (
