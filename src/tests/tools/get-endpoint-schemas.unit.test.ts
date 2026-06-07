@@ -1,8 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { handleGetEndpointSchemas } from "../../tools/get-endpoint-schemas.js";
-import type { SpecParser } from "../../parser/index.js";
-import type { FullEndpoint } from "../../parser/index.js";
+import type { EndpointDetailSource } from "../../parser/index.js";
+import type { FullEndpoint } from "../../parser/types.js";
 
 type EndpointParameter = FullEndpoint["parameters"][number];
 
@@ -35,6 +35,7 @@ function makeEndpoint(overrides: Partial<FullEndpoint> = {}): FullEndpoint {
     domain: "rooms",
     parameters: [],
     security: [],
+    parameterSchemas: {},
     inputSchema: {
       type: "object",
       properties: {
@@ -47,7 +48,7 @@ function makeEndpoint(overrides: Partial<FullEndpoint> = {}): FullEndpoint {
 
 describe("handleGetEndpointSchemas", () => {
   it("returns schemas with corrections and unmatched operationIds", async () => {
-    const parser = {
+    const parser: EndpointDetailSource = {
       getFullEndpoints: async () => ({
         endpoints: [
           makeEndpoint({
@@ -60,7 +61,7 @@ describe("handleGetEndpointSchemas", () => {
           ["get-api-v1-chat_getMessages", "get-api-v1-chat_getMessage"],
         ]),
       }),
-    } as unknown as SpecParser;
+    };
 
     const result = await handleGetEndpointSchemas(parser, [
       "get-api-v1-chat_getMessages",
@@ -78,14 +79,25 @@ describe("handleGetEndpointSchemas", () => {
     );
   });
 
-  it("returns requestBody schemas unchanged", async () => {
-    const parser = {
+  it("returns requestBody schemas for POST endpoints", async () => {
+    const parser: EndpointDetailSource = {
       getFullEndpoints: async () => ({
         endpoints: [
           makeEndpoint({
             operationId: "post-api-v1-channels_create",
             method: "POST",
             path: "/api/v1/channels.create",
+            requestBody: {
+              contentType: "application/json",
+              schema: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  members: { type: "array", items: { type: "string" } },
+                },
+              },
+              required: true,
+            },
             inputSchema: {
               type: "object",
               properties: {
@@ -102,7 +114,7 @@ describe("handleGetEndpointSchemas", () => {
         ],
         correctedIds: new Map<string, string>(),
       }),
-    } as unknown as SpecParser;
+    };
 
     const result = await handleGetEndpointSchemas(parser, [
       "post-api-v1-channels_create",
@@ -110,19 +122,21 @@ describe("handleGetEndpointSchemas", () => {
     const json = parseToolJson(result);
     const endpoints = json.endpoints as Record<string, Record<string, unknown>>;
     const channelCreate = endpoints["post-api-v1-channels_create"];
-    const requestBody = channelCreate.requestBody as Record<string, unknown>;
+    const requestBody = channelCreate.requestBody as {
+      type: string;
+      properties: Record<string, unknown>;
+    };
 
-    assert.deepStrictEqual(requestBody, {
-      type: "object",
-      properties: {
-        name: { type: "string" },
-        members: { type: "array", items: { type: "string" } },
-      },
+    assert.equal(requestBody.type, "object");
+    assert.deepStrictEqual(requestBody.properties.name, { type: "string" });
+    assert.deepStrictEqual(requestBody.properties.members, {
+      type: "array",
+      items: { type: "string" },
     });
   });
 
   it("returns requestBody and pathParameters for mixed endpoints", async () => {
-    const parser = {
+    const parser: EndpointDetailSource = {
       getFullEndpoints: async () => ({
         endpoints: [
           makeEndpoint({
@@ -133,6 +147,26 @@ describe("handleGetEndpointSchemas", () => {
               makeParameter("rid", "path", true),
               makeParameter("fileId", "path", true),
             ],
+            parameterSchemas: {
+              path: {
+                type: "object",
+                properties: {
+                  rid: { type: "string" },
+                  fileId: { type: "string" },
+                },
+                required: ["rid", "fileId"],
+              },
+            },
+            requestBody: {
+              contentType: "application/json",
+              schema: {
+                type: "object",
+                properties: {
+                  message: { type: "string" },
+                },
+              },
+              required: false,
+            },
             inputSchema: {
               type: "object",
               properties: {
@@ -150,7 +184,7 @@ describe("handleGetEndpointSchemas", () => {
         ],
         correctedIds: new Map<string, string>(),
       }),
-    } as unknown as SpecParser;
+    };
 
     const result = await handleGetEndpointSchemas(parser, [
       "post-api-v1-rooms_mediaConfirm-rid-fileId",
@@ -174,11 +208,19 @@ describe("handleGetEndpointSchemas", () => {
   });
 
   it("returns true query params under queryParameters", async () => {
-    const parser = {
+    const parser: EndpointDetailSource = {
       getFullEndpoints: async () => ({
         endpoints: [
           makeEndpoint({
             parameters: [makeParameter("offset", "query")],
+            parameterSchemas: {
+              query: {
+                type: "object",
+                properties: {
+                  offset: { type: "number" },
+                },
+              },
+            },
             inputSchema: {
               type: "object",
               properties: {
@@ -189,7 +231,7 @@ describe("handleGetEndpointSchemas", () => {
         ],
         correctedIds: new Map<string, string>(),
       }),
-    } as unknown as SpecParser;
+    };
 
     const result = await handleGetEndpointSchemas(parser, [
       "get-api-v1-channels_list",
@@ -209,7 +251,7 @@ describe("handleGetEndpointSchemas", () => {
   });
 
   it("returns non-auth header params under headerParameters", async () => {
-    const parser = {
+    const parser: EndpointDetailSource = {
       getFullEndpoints: async () => ({
         endpoints: [
           makeEndpoint({
@@ -217,6 +259,15 @@ describe("handleGetEndpointSchemas", () => {
               makeParameter("x-2fa-code", "header", true),
               makeParameter("X-Auth-Token", "header", true),
             ],
+            parameterSchemas: {
+              header: {
+                type: "object",
+                properties: {
+                  "x-2fa-code": { type: "string" },
+                },
+                required: ["x-2fa-code"],
+              },
+            },
             inputSchema: {
               type: "object",
               properties: {
@@ -228,7 +279,7 @@ describe("handleGetEndpointSchemas", () => {
         ],
         correctedIds: new Map<string, string>(),
       }),
-    } as unknown as SpecParser;
+    };
 
     const result = await handleGetEndpointSchemas(parser, [
       "get-api-v1-channels_list",
@@ -247,12 +298,78 @@ describe("handleGetEndpointSchemas", () => {
     assert.deepStrictEqual(headerParameters.required, ["x-2fa-code"]);
   });
 
+  it("does not inspect inputSchema properties for grouped parameters", async () => {
+    const parser: EndpointDetailSource = {
+      getFullEndpoints: async () => ({
+        endpoints: [
+          makeEndpoint({
+            parameters: [makeParameter("offset", "query")],
+            parameterSchemas: {
+              query: {
+                type: "object",
+                properties: {
+                  offset: { type: "number" },
+                },
+              },
+            },
+            inputSchema: {
+              type: "object",
+              properties: {},
+            },
+          }),
+        ],
+        correctedIds: new Map<string, string>(),
+      }),
+    };
+
+    const result = await handleGetEndpointSchemas(parser, [
+      "get-api-v1-channels_list",
+    ]);
+    const json = parseToolJson(result);
+    const endpoints = json.endpoints as Record<string, Record<string, unknown>>;
+    const endpoint = endpoints["get-api-v1-channels_list"];
+    const queryParameters = endpoint.queryParameters as {
+      properties: Record<string, unknown>;
+    };
+
+    assert.deepStrictEqual(queryParameters.properties.offset, {
+      type: "number",
+    });
+  });
+
+  it("returns structuredContent alongside text content", async () => {
+    const parser: EndpointDetailSource = {
+      getFullEndpoints: async () => ({
+        endpoints: [makeEndpoint()],
+        correctedIds: new Map<string, string>(),
+      }),
+    };
+
+    const result = await handleGetEndpointSchemas(parser, [
+      "get-api-v1-channels_list",
+    ]);
+
+    assert.ok(result.structuredContent);
+    assert.ok(result.structuredContent.endpoints);
+    assert.ok(
+      (
+        result.structuredContent.endpoints as Record<
+          string,
+          Record<string, unknown>
+        >
+      )["get-api-v1-channels_list"],
+    );
+
+    const json = parseToolJson(result);
+    assert.deepStrictEqual(json.endpoints, result.structuredContent.endpoints);
+  });
+
   it("returns an error response when schema lookup fails", async () => {
-    const parser = {
+    const parser: EndpointDetailSource = {
       getFullEndpoints: async () => {
         throw new Error("lookup failed");
       },
-    } as unknown as SpecParser;
+    };
 
     const result = await handleGetEndpointSchemas(parser, ["anything"]);
 
@@ -262,5 +379,6 @@ describe("handleGetEndpointSchemas", () => {
         "Failed to get endpoint schemas: lookup failed",
       ),
     );
+    assert.equal(result.structuredContent, undefined);
   });
 });

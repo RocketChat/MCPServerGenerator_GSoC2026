@@ -11,11 +11,11 @@ describe("mapOpenApiSchemaToJsonSchema", () => {
     assert.deepStrictEqual(result, { type: "string" });
   });
 
-  it("maps integer to number", () => {
+  it("preserves integer type", () => {
     const result = mapOpenApiSchemaToJsonSchema({
       type: "integer",
     } as OpenAPIV3.SchemaObject);
-    assert.deepStrictEqual(result, { type: "number" });
+    assert.deepStrictEqual(result, { type: "integer" });
   });
 
   it("maps nullable string", () => {
@@ -39,7 +39,7 @@ describe("mapOpenApiSchemaToJsonSchema", () => {
     assert.equal(result.type, "object");
     assert.ok(result.properties);
     assert.deepStrictEqual(result.properties!["name"], { type: "string" });
-    assert.deepStrictEqual(result.properties!["age"], { type: "number" });
+    assert.deepStrictEqual(result.properties!["age"], { type: "integer" });
     assert.deepStrictEqual(result.required, ["name"]);
   });
 
@@ -61,7 +61,7 @@ describe("mapOpenApiSchemaToJsonSchema", () => {
 
     assert.deepStrictEqual(result, {
       type: "object",
-      additionalProperties: { type: "number" },
+      additionalProperties: { type: "integer" },
     });
   });
 
@@ -92,6 +92,84 @@ describe("mapOpenApiSchemaToJsonSchema", () => {
     } as OpenAPIV3.SchemaObject);
 
     assert.deepStrictEqual(result, { type: "string", default: "general" });
+  });
+
+  it("carries over validation constraints", () => {
+    const result = mapOpenApiSchemaToJsonSchema({
+      type: "object",
+      properties: {
+        count: {
+          type: "integer",
+          minimum: 1,
+          maximum: 100,
+        },
+        name: {
+          type: "string",
+          minLength: 2,
+          maxLength: 32,
+          pattern: "^[a-z]+$",
+        },
+        tags: {
+          type: "array",
+          minItems: 1,
+          maxItems: 5,
+          uniqueItems: true,
+          items: { type: "string" },
+        },
+      },
+    } as OpenAPIV3.SchemaObject);
+
+    const properties = result.properties as Record<string, unknown>;
+    assert.deepStrictEqual(properties.count, {
+      type: "integer",
+      minimum: 1,
+      maximum: 100,
+    });
+    assert.deepStrictEqual(properties.name, {
+      type: "string",
+      minLength: 2,
+      maxLength: 32,
+      pattern: "^[a-z]+$",
+    });
+    assert.deepStrictEqual(properties.tags, {
+      type: "array",
+      minItems: 1,
+      maxItems: 5,
+      uniqueItems: true,
+      items: { type: "string" },
+    });
+  });
+
+  it("copies numeric exclusive bounds and skips OpenAPI boolean exclusives", () => {
+    const numericResult = mapOpenApiSchemaToJsonSchema({
+      type: "number",
+      exclusiveMinimum: 1,
+      exclusiveMaximum: 10,
+    } as unknown as OpenAPIV3.SchemaObject);
+    assert.equal(numericResult.exclusiveMinimum, 1);
+    assert.equal(numericResult.exclusiveMaximum, 10);
+
+    const booleanResult = mapOpenApiSchemaToJsonSchema({
+      type: "number",
+      exclusiveMinimum: true,
+      exclusiveMaximum: true,
+    } as OpenAPIV3.SchemaObject);
+    assert.equal(booleanResult.exclusiveMinimum, undefined);
+    assert.equal(booleanResult.exclusiveMaximum, undefined);
+  });
+
+  it("carries over examples", () => {
+    const singleExample = mapOpenApiSchemaToJsonSchema({
+      type: "string",
+      example: "general",
+    } as OpenAPIV3.SchemaObject);
+    assert.deepStrictEqual(singleExample.examples, ["general"]);
+
+    const multipleExamples = mapOpenApiSchemaToJsonSchema({
+      type: "string",
+      examples: ["general", "random"],
+    } as OpenAPIV3.SchemaObject);
+    assert.deepStrictEqual(multipleExamples.examples, ["general", "random"]);
   });
 
   it("handles unresolved $ref gracefully", () => {

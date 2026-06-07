@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { createMcpServer } from "../../server.js";
-import type { SpecParser } from "../../parser/index.js";
+import type { SpecParserInterface } from "../../parser/index.js";
 import type { Domain } from "../../parser/types.js";
 
 const operationId = "post-api-v1-chat_postMessage";
 
-const mockParser = {
+const mockParser: SpecParserInterface = {
   getAvailableDomains: () => ["messaging" as Domain],
   listEndpoints: async () => [
     {
@@ -27,7 +27,18 @@ const mockParser = {
         description: "Post Message",
         domain: "messaging" as Domain,
         parameters: [],
+        requestBody: {
+          contentType: "application/json",
+          schema: {
+            type: "object",
+            properties: {
+              text: { type: "string" },
+            },
+          },
+          required: true,
+        },
         security: [],
+        parameterSchemas: {},
         inputSchema: {
           type: "object",
           properties: {
@@ -43,7 +54,7 @@ const mockParser = {
     ],
     correctedIds: new Map<string, string>(),
   }),
-} as unknown as SpecParser;
+};
 
 async function connectTestClient() {
   const { server } = createMcpServer(mockParser);
@@ -76,6 +87,11 @@ describe("MCP protocol smoke test", () => {
       assert.ok(names.includes("get_capability_guide"));
       assert.ok(names.includes("get_endpoint_schemas"));
       assert.equal(tools.length, 2);
+
+      const schemaTool = tools.find(
+        (tool) => tool.name === "get_endpoint_schemas",
+      );
+      assert.ok(schemaTool?.outputSchema);
     } finally {
       await client.close();
       await server.close();
@@ -127,6 +143,11 @@ describe("MCP protocol smoke test", () => {
       const text = assertTextContent(result);
       const json = JSON.parse(text);
       assert.ok(json.endpoints[operationId]);
+      assert.ok(result.structuredContent);
+      const structuredContent = result.structuredContent as {
+        endpoints: Record<string, Record<string, unknown>>;
+      };
+      assert.ok(structuredContent.endpoints[operationId]);
     } finally {
       await client.close();
       await server.close();

@@ -1,7 +1,7 @@
 import { formatCapabilityGuide } from "./capability-guide.js";
-import type { SpecParser } from "../parser/index.js";
+import type { CapabilityGuideSource } from "../parser/index.js";
 
-export async function handleGetCapabilityGuide(parser: SpecParser) {
+export async function handleGetCapabilityGuide(parser: CapabilityGuideSource) {
   try {
     const endpoints = await parser.listEndpoints(parser.getAvailableDomains());
     const guide = formatCapabilityGuide(endpoints);

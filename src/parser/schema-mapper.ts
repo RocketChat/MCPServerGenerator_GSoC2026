@@ -28,10 +28,7 @@ export function mapOpenApiSchemaToJsonSchema(
     const jsonSchema: JSONSchema7 = {};
 
     if (schema.type) {
-      jsonSchema.type =
-        schema.type === "integer"
-          ? "number"
-          : (schema.type as JSONSchema7TypeName);
+      jsonSchema.type = schema.type as JSONSchema7TypeName;
     }
 
     if (schema.description) {
@@ -52,6 +49,43 @@ export function mapOpenApiSchemaToJsonSchema(
 
     if (schema.default !== undefined) {
       jsonSchema.default = schema.default;
+    }
+
+    if (schema.minimum !== undefined) jsonSchema.minimum = schema.minimum;
+    if (schema.maximum !== undefined) jsonSchema.maximum = schema.maximum;
+
+    const schemaExtensions = schema as unknown as {
+      exclusiveMinimum?: unknown;
+      exclusiveMaximum?: unknown;
+      example?: unknown;
+      examples?: unknown;
+    };
+
+    if (typeof schemaExtensions.exclusiveMinimum === "number") {
+      jsonSchema.exclusiveMinimum = schemaExtensions.exclusiveMinimum;
+    }
+    if (typeof schemaExtensions.exclusiveMaximum === "number") {
+      jsonSchema.exclusiveMaximum = schemaExtensions.exclusiveMaximum;
+    }
+
+    if (schema.minLength !== undefined) jsonSchema.minLength = schema.minLength;
+    if (schema.maxLength !== undefined) jsonSchema.maxLength = schema.maxLength;
+    if (schema.pattern !== undefined) jsonSchema.pattern = schema.pattern;
+
+    if (schema.minItems !== undefined) jsonSchema.minItems = schema.minItems;
+    if (schema.maxItems !== undefined) jsonSchema.maxItems = schema.maxItems;
+    if (schema.uniqueItems !== undefined) {
+      jsonSchema.uniqueItems = schema.uniqueItems;
+    }
+
+    if (schemaExtensions.example !== undefined) {
+      jsonSchema.examples = [
+        schemaExtensions.example,
+      ] as JSONSchema7["examples"];
+    }
+    if (schemaExtensions.examples !== undefined) {
+      jsonSchema.examples =
+        schemaExtensions.examples as JSONSchema7["examples"];
     }
 
     if (schema.type === "object" && schema.properties) {

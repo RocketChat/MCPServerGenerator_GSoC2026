@@ -128,6 +128,20 @@ describe("extractFullEndpoints", () => {
       "Operation-level count",
     );
     assert.deepStrictEqual(endpoint.inputSchema.required, ["rid"]);
+    assert.deepStrictEqual(endpoint.parameterSchemas.path, {
+      type: "object",
+      properties: {
+        rid: { type: "string", description: "Path-level rid" },
+      },
+      required: ["rid"],
+    });
+    assert.deepStrictEqual(endpoint.parameterSchemas.query, {
+      type: "object",
+      properties: {
+        count: { type: "integer", description: "Operation-level count" },
+      },
+    });
+    assert.equal(endpoint.parameterSchemas.header, undefined);
   });
 
   it("filters unresolved parameter references", () => {
@@ -157,6 +171,51 @@ describe("extractFullEndpoints", () => {
     assert.deepStrictEqual(
       endpoint.parameters.map((param) => param.name),
       ["offset"],
+    );
+  });
+
+  it("applies maxDepth to parameter schemas", () => {
+    const spec = makeSpec({
+      "/rooms": {
+        get: {
+          operationId: "get-rooms",
+          parameters: [
+            {
+              name: "filter",
+              in: "query",
+              schema: {
+                type: "object",
+                properties: {
+                  metadata: {
+                    type: "object",
+                    properties: {
+                      owner: { type: "string" },
+                    },
+                  },
+                },
+              },
+            },
+          ],
+          responses: {},
+        },
+      },
+    });
+
+    const [endpoint] = extractFullEndpoints(
+      spec,
+      "rooms",
+      new Set(["get-rooms"]),
+      2,
+    );
+    const properties = endpoint.inputSchema.properties as Record<string, any>;
+
+    assert.deepStrictEqual(properties.filter.properties.metadata.properties, {
+      owner: { type: "object" },
+    });
+    assert.deepStrictEqual(
+      (endpoint.parameterSchemas.query?.properties as Record<string, any>)
+        .filter.properties.metadata.properties,
+      { owner: { type: "object" } },
     );
   });
 
@@ -199,6 +258,46 @@ describe("extractFullEndpoints", () => {
     );
     assert.equal(properties["X-Auth-Token"], undefined);
     assert.deepStrictEqual(endpoint.inputSchema.required, ["x-2fa-code"]);
+    assert.deepStrictEqual(endpoint.parameterSchemas.header, {
+      type: "object",
+      properties: {
+        "x-2fa-code": { type: "string" },
+      },
+      required: ["x-2fa-code"],
+    });
+  });
+
+  it("keeps cookie parameters in inputSchema without grouped output schemas", () => {
+    const spec = makeSpec({
+      "/session": {
+        get: {
+          operationId: "get-session",
+          parameters: [
+            {
+              name: "sessionId",
+              in: "cookie",
+              required: true,
+              schema: { type: "string" },
+            },
+          ],
+          responses: {},
+        },
+      },
+    });
+
+    const [endpoint] = extractFullEndpoints(
+      spec,
+      "authentication",
+      new Set(["get-session"]),
+    );
+    const properties = endpoint.inputSchema.properties as Record<
+      string,
+      unknown
+    >;
+
+    assert.deepStrictEqual(properties.sessionId, { type: "string" });
+    assert.deepStrictEqual(endpoint.inputSchema.required, ["sessionId"]);
+    assert.deepStrictEqual(endpoint.parameterSchemas, {});
   });
 
   it("extracts request body metadata and 201 response schemas", () => {

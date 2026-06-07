@@ -1,11 +1,13 @@
 import { OpenAPIV3 } from "openapi-types";
 import type { JSONSchema7 } from "json-schema";
 import { mapOpenApiSchemaToJsonSchema } from "./schema-mapper.js";
+import { INPUT_SCHEMA_BODY_KEY } from "./types.js";
 import type { CompactEndpoint, Domain, FullEndpoint } from "./types.js";
 
 const AUTH_HEADER_PARAMS = new Set(["X-Auth-Token", "X-User-Id"]);
+const PARAMETER_SCHEMA_LOCATIONS = ["path", "query", "header"] as const;
+type ParameterSchemaLocation = (typeof PARAMETER_SCHEMA_LOCATIONS)[number];
 
-// Compact guide entries.
 export function extractCompactEndpoints(
   api: OpenAPIV3.Document,
   domain: Domain,
@@ -42,7 +44,6 @@ export function extractCompactEndpoints(
   return results;
 }
 
-// Full schemas for selected operationIds.
 export function extractFullEndpoints(
   api: OpenAPIV3.Document,
   domain: Domain,
@@ -75,28 +76,33 @@ export function extractFullEndpoints(
         toParameterObjects(operation.parameters),
       );
 
-      const inputSchema = buildInputSchema(
-        allParams,
-        operation.requestBody,
-        maxDepth,
-      );
-
       let requestBody: FullEndpoint["requestBody"];
+      let requestBodySchema: JSONSchema7 | undefined;
+      let requestBodyRequired = false;
       if (operation.requestBody) {
         const rb = operation.requestBody as OpenAPIV3.RequestBodyObject;
         const resolved = resolveRequestBodyContent(rb);
         if (resolved) {
+          requestBodySchema = mapOpenApiSchemaToJsonSchema(
+            resolved.schema,
+            undefined,
+            maxDepth,
+          );
+          requestBodyRequired = rb.required ?? false;
           requestBody = {
             contentType: resolved.contentType,
-            schema: mapOpenApiSchemaToJsonSchema(
-              resolved.schema,
-              undefined,
-              maxDepth,
-            ),
-            required: rb.required ?? false,
+            schema: requestBodySchema,
+            required: requestBodyRequired,
           };
         }
       }
+
+      const { inputSchema, parameterSchemas } = buildInputSchemas(
+        allParams,
+        requestBodySchema,
+        requestBodyRequired,
+        maxDepth,
+      );
 
       let responseSchema: JSONSchema7 | undefined;
       if (operation.responses) {
@@ -140,6 +146,7 @@ export function extractFullEndpoints(
         requestBody,
         security,
         inputSchema,
+        parameterSchemas,
       };
       if (responseSchema) ep.responseSchema = responseSchema;
       results.push(ep);
@@ -202,46 +209,94 @@ function toParameterObjects(
   });
 }
 
-// Flat MCP input schema.
-function buildInputSchema(
-  params: OpenAPIV3.ParameterObject[],
-  requestBody?: OpenAPIV3.RequestBodyObject | OpenAPIV3.ReferenceObject,
-  maxDepth?: number,
-): JSONSchema7 {
-  const properties: Record<string, JSONSchema7> = {};
-  const required: string[] = [];
+function isParameterSchemaLocation(
+  location: OpenAPIV3.ParameterObject["in"],
+): location is ParameterSchemaLocation {
+  return PARAMETER_SCHEMA_LOCATIONS.includes(
+    location as ParameterSchemaLocation,
+  );
+}
 
-  for (const param of params) {
-    if (!param.name || !param.schema) continue;
-    if (param.in === "header" && AUTH_HEADER_PARAMS.has(param.name)) continue;
-    const paramSchema = mapOpenApiSchemaToJsonSchema(
-      param.schema as OpenAPIV3.SchemaObject,
-    );
-    if (param.description && typeof paramSchema === "object") {
-      paramSchema.description = param.description;
-    }
-    properties[param.name] = paramSchema;
-    if (param.required) required.push(param.name);
-  }
-
-  if (requestBody && !("$ref" in requestBody)) {
-    const rb = requestBody as OpenAPIV3.RequestBodyObject;
-    const resolved = resolveRequestBodyContent(rb);
-    if (resolved) {
-      properties["requestBody"] = mapOpenApiSchemaToJsonSchema(
-        resolved.schema,
-        undefined,
-        maxDepth,
-      );
-      if (rb.required) required.push("requestBody");
-    }
-  }
+function buildObjectSchema(
+  properties: Record<string, JSONSchema7>,
+  required: string[],
+): JSONSchema7 | undefined {
+  if (Object.keys(properties).length === 0) return undefined;
 
   return {
     type: "object",
     properties,
     ...(required.length > 0 && { required }),
   };
+}
+
+function buildInputSchemas(
+  params: OpenAPIV3.ParameterObject[],
+  requestBodySchema?: JSONSchema7,
+  requestBodyRequired = false,
+  maxDepth?: number,
+): {
+  inputSchema: JSONSchema7;
+  parameterSchemas: FullEndpoint["parameterSchemas"];
+} {
+  const inputProperties: Record<string, JSONSchema7> = {};
+  const inputRequired: string[] = [];
+  const grouped = Object.fromEntries(
+    PARAMETER_SCHEMA_LOCATIONS.map((location) => [
+      location,
+      {
+        properties: {} as Record<string, JSONSchema7>,
+        required: [] as string[],
+      },
+    ]),
+  ) as Record<
+    ParameterSchemaLocation,
+    { properties: Record<string, JSONSchema7>; required: string[] }
+  >;
+
+  for (const param of params) {
+    if (!param.name || !param.schema) continue;
+    if (param.in === "header" && AUTH_HEADER_PARAMS.has(param.name)) continue;
+
+    const paramSchema = mapOpenApiSchemaToJsonSchema(
+      param.schema as OpenAPIV3.SchemaObject,
+      undefined,
+      maxDepth,
+    );
+    if (param.description && typeof paramSchema === "object") {
+      paramSchema.description = param.description;
+    }
+
+    inputProperties[param.name] = paramSchema;
+    if (param.required) inputRequired.push(param.name);
+
+    if (isParameterSchemaLocation(param.in)) {
+      grouped[param.in].properties[param.name] = paramSchema;
+      if (param.required) grouped[param.in].required.push(param.name);
+    }
+  }
+
+  if (requestBodySchema) {
+    inputProperties[INPUT_SCHEMA_BODY_KEY] = requestBodySchema;
+    if (requestBodyRequired) inputRequired.push(INPUT_SCHEMA_BODY_KEY);
+  }
+
+  const parameterSchemas: FullEndpoint["parameterSchemas"] = {};
+  for (const location of PARAMETER_SCHEMA_LOCATIONS) {
+    const schema = buildObjectSchema(
+      grouped[location].properties,
+      grouped[location].required,
+    );
+    if (schema) parameterSchemas[location] = schema;
+  }
+
+  const inputSchema: JSONSchema7 = {
+    type: "object",
+    properties: inputProperties,
+    ...(inputRequired.length > 0 && { required: inputRequired }),
+  };
+
+  return { inputSchema, parameterSchemas };
 }
 
 const CONTENT_TYPE_PRIORITY = [

@@ -1,47 +1,15 @@
-import type { FullEndpoint, SpecParser } from "../parser/index.js";
+import type { EndpointDetailSource } from "../parser/index.js";
 
-// Output keys by parameter location.
 const PARAMETER_GROUP_KEYS = {
   path: "pathParameters",
   query: "queryParameters",
   header: "headerParameters",
 } as const;
-const AUTH_HEADER_PARAMS = new Set(["X-Auth-Token", "X-User-Id"]);
 
 type ParameterLocation = keyof typeof PARAMETER_GROUP_KEYS;
 
-function buildParameterSchema(
-  properties: Record<string, unknown> | undefined,
-  parameters: FullEndpoint["parameters"],
-  location: ParameterLocation,
-) {
-  if (!properties) return undefined;
-
-  const groupedProperties: Record<string, unknown> = {};
-  const required: string[] = [];
-
-  for (const param of parameters) {
-    if (param.in !== location) continue;
-    if (location === "header" && AUTH_HEADER_PARAMS.has(param.name)) continue;
-
-    const schema = properties[param.name];
-    if (!schema) continue;
-
-    groupedProperties[param.name] = schema;
-    if (param.required) required.push(param.name);
-  }
-
-  if (Object.keys(groupedProperties).length === 0) return undefined;
-
-  return {
-    type: "object",
-    properties: groupedProperties,
-    ...(required.length > 0 && { required }),
-  };
-}
-
 export async function handleGetEndpointSchemas(
-  parser: SpecParser,
+  parser: EndpointDetailSource,
   operationIds: string[],
 ) {
   try {
@@ -57,23 +25,16 @@ export async function handleGetEndpointSchemas(
         method: ep.method,
         path: ep.path,
       };
-      const inputProperties = (ep.inputSchema as Record<string, unknown>)
-        ?.properties as Record<string, unknown> | undefined;
-      if (inputProperties?.requestBody) {
-        entry.requestBody = inputProperties.requestBody;
+      if (ep.requestBody) {
+        entry.requestBody = ep.requestBody.schema;
       }
 
       for (const location of Object.keys(
         PARAMETER_GROUP_KEYS,
       ) as ParameterLocation[]) {
-        const outputKey = PARAMETER_GROUP_KEYS[location];
-        const parameterSchema = buildParameterSchema(
-          inputProperties,
-          ep.parameters,
-          location,
-        );
+        const parameterSchema = ep.parameterSchemas[location];
         if (parameterSchema) {
-          entry[outputKey] = parameterSchema;
+          entry[PARAMETER_GROUP_KEYS[location]] = parameterSchema;
         }
       }
       if (ep.responseSchema) {
@@ -103,6 +64,7 @@ export async function handleGetEndpointSchemas(
           text: JSON.stringify(result, null, 2),
         },
       ],
+      structuredContent: result,
     };
   } catch (err) {
     return {
