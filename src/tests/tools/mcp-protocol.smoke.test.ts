@@ -86,7 +86,8 @@ describe("MCP protocol smoke test", () => {
 
       assert.ok(names.includes("get_capability_guide"));
       assert.ok(names.includes("get_endpoint_schemas"));
-      assert.equal(tools.length, 2);
+      assert.ok(names.includes("generate"));
+      assert.equal(tools.length, 3);
 
       const schemaTool = tools.find(
         (tool) => tool.name === "get_endpoint_schemas",

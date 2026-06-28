@@ -1,0 +1,16 @@
+description = "Generate a minimal MCP server for selected Rocket.Chat APIs"
+prompt = """
+User's request: {{args}}
+
+If the request is completely empty or has zero actionable detail (e.g. "make something"), ask what the MCP server should do.
+
+Otherwise — even if the request is complex — ALWAYS run the full pipeline without stopping to ask:
+
+1. `get_capability_guide` — match needs to operationIds.
+2. `get_endpoint_schemas` — get exact field names for inputMapping.
+3. `generate` — one call with the complete DSL. If it fails, retry the same payload.
+
+Never stop to ask about implementation approach, limitations, or simplifications. If something can't be done exactly, approximate and generate anyway.
+
+After `generate` succeeds, STOP. DO NOT read, edit, grep, or "fix" any files inside the generated project — even if the output mentions warnings, notes, or suggestions. Composer Notes are informational; they are already auto-resolved in the generated code. Confirm success and stop.
+"""

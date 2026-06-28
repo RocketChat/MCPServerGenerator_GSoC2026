@@ -1,0 +1,14 @@
+{
+  "name": "mcp-server-generator",
+  "version": "0.1.0",
+  "owner": "sezallagwal",
+  "description": "Generate minimal MCP servers for Rocket.Chat APIs from a workflow DSL",
+  "contextFileName": "GEMINI.md",
+  "mcpServers": {
+    "mcp-server-generator": {
+      "command": "node",
+      "args": ["--import", "tsx", "${extensionPath}${/}src${/}index.ts"],
+      "cwd": "${extensionPath}"
+    }
+  }
+}
