@@ -65,7 +65,9 @@ export const JS_BUILTIN_METHODS = new Set([
   "length",
 ]);
 
-export function findLiteralRid(mapping: Record<string, unknown>): string | null {
+export function findLiteralRid(
+  mapping: Record<string, unknown>,
+): string | null {
   function check(val: unknown): string | null {
     if (typeof val === "string" && !val.includes("{{")) return val;
     return null;
@@ -187,5 +189,3 @@ export function topologicalSort(steps: ComposeStepInput[]): string[] {
 
   return order;
 }
-
-
