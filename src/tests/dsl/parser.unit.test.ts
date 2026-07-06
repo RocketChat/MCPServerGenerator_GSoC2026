@@ -869,3 +869,309 @@ WORKFLOW w
     assert.ok(elapsed < 1000, `Took ${elapsed}ms, expected < 1000ms`);
   });
 });
+
+describe("parseDsl - step keyword/type applicability", () => {
+  const wrap = (steps: string) =>
+    `PROJECT p\nDESCRIPTION d\nWORKFLOW w\n  DESCRIPTION d\n${steps}`;
+
+  it("rejects MAP inside a transform step", () => {
+    assert.throws(
+      () =>
+        parseDsl(
+          wrap("  STEP t : transform\n    EXPRESSION 1\n    MAP a = 1\n"),
+        ),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /Keyword "MAP" is not valid in a "transform" step/.test(err.message),
+    );
+  });
+
+  it("rejects PROMPT inside an api_call step", () => {
+    assert.throws(
+      () =>
+        parseDsl(
+          wrap("  STEP t : api_call\n    OPERATION op\n    PROMPT hi\n"),
+        ),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /Keyword "PROMPT" is not valid in a "api_call" step/.test(err.message),
+    );
+  });
+
+  it("rejects OPERATION inside a sampling step", () => {
+    assert.throws(
+      () =>
+        parseDsl(
+          wrap("  STEP t : sampling\n    PROMPT hi\n    OPERATION op\n"),
+        ),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /Keyword "OPERATION" is not valid in a "sampling" step/.test(
+          err.message,
+        ),
+    );
+  });
+
+  it("rejects CONDITION inside a transform step", () => {
+    assert.throws(
+      () =>
+        parseDsl(
+          wrap("  STEP t : transform\n    EXPRESSION 1\n    CONDITION x > 0\n"),
+        ),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /Keyword "CONDITION" is not valid in a "transform" step/.test(
+          err.message,
+        ),
+    );
+  });
+
+  it("allows SCHEMA in both sampling and elicitation steps", () => {
+    assert.doesNotThrow(() =>
+      parseDsl(
+        wrap(
+          '  STEP t : sampling\n    PROMPT hi\n    SCHEMA {"type":"object"}\n',
+        ),
+      ),
+    );
+    assert.doesNotThrow(() =>
+      parseDsl(
+        wrap(
+          '  STEP t : elicitation\n    MESSAGE hi\n    SCHEMA {"type":"object"}\n',
+        ),
+      ),
+    );
+  });
+
+  it("allows generic keywords (OUTPUT_PATH, DEPENDS ON, FOR_EACH/AS) on any step type", () => {
+    const dsl = `PROJECT p
+DESCRIPTION d
+WORKFLOW w
+  DESCRIPTION d
+  STEP a : api_call
+    OPERATION op
+  STEP b : transform
+    DEPENDS ON a
+    OUTPUT_PATH result
+    FOR_EACH {{steps.a.items}}
+    AS item
+    EXPRESSION item
+`;
+    assert.doesNotThrow(() => parseDsl(dsl));
+  });
+});
+
+describe("parseDsl - PROJECT declaration validation", () => {
+  it("rejects a duplicate PROJECT declaration", () => {
+    const dsl = `PROJECT a
+PROJECT b
+DESCRIPTION d
+WORKFLOW w
+  DESCRIPTION d
+  STEP t : transform
+    EXPRESSION 1
+`;
+    assert.throws(
+      () => parseDsl(dsl),
+      (err: unknown) =>
+        err instanceof DslParseError && /Duplicate PROJECT/.test(err.message),
+    );
+  });
+
+  it("rejects a late PROJECT declaration after a workflow", () => {
+    const dsl = `PROJECT a
+DESCRIPTION d
+WORKFLOW w
+  DESCRIPTION d
+  STEP t : transform
+    EXPRESSION 1
+PROJECT b
+`;
+    assert.throws(
+      () => parseDsl(dsl),
+      (err: unknown) =>
+        err instanceof DslParseError && /Duplicate PROJECT/.test(err.message),
+    );
+  });
+
+  it("rejects a bare PROJECT with no name", () => {
+    assert.throws(
+      () => parseDsl("PROJECT\nDESCRIPTION d\n"),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /PROJECT requires a name/.test(err.message),
+    );
+  });
+});
+
+describe("parseDsl - MAP path and value safety", () => {
+  const wrap = (map: string) =>
+    `PROJECT p\nDESCRIPTION d\nWORKFLOW w\n  DESCRIPTION d\n  STEP t : api_call\n    OPERATION op\n    ${map}\n`;
+
+  it("rejects an empty path segment (a..b)", () => {
+    assert.throws(
+      () => parseDsl(wrap("MAP a..b = 1")),
+      (err: unknown) =>
+        err instanceof DslParseError && /empty segment/.test(err.message),
+    );
+  });
+
+  it("rejects a leading-dot path (.a)", () => {
+    assert.throws(
+      () => parseDsl(wrap("MAP .a = 1")),
+      (err: unknown) =>
+        err instanceof DslParseError && /empty segment/.test(err.message),
+    );
+  });
+
+  it("rejects __proto__ in a MAP path", () => {
+    assert.throws(
+      () => parseDsl(wrap("MAP __proto__.x = 1")),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /reserved key/.test(err.message) &&
+        /__proto__/.test(err.message),
+    );
+  });
+
+  it("rejects constructor in a MAP path", () => {
+    assert.throws(
+      () => parseDsl(wrap("MAP constructor.x = 1")),
+      (err: unknown) =>
+        err instanceof DslParseError && /reserved key/.test(err.message),
+    );
+  });
+
+  it("rejects a reserved key nested inside a JSON MAP value", () => {
+    assert.throws(
+      () => parseDsl(wrap('MAP a = {"__proto__":{"x":1}}')),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /reserved key "__proto__"/.test(err.message),
+    );
+  });
+
+  it("still accepts normal nested dot-paths", () => {
+    assert.doesNotThrow(() =>
+      parseDsl(wrap("MAP message.rid = {{params.id}}")),
+    );
+  });
+});
+
+describe("parseDsl - RESPONSE_FORMAT and MAX_TOKENS validation", () => {
+  const sampling = (line: string) =>
+    `PROJECT p\nDESCRIPTION d\nWORKFLOW w\n  DESCRIPTION d\n  STEP t : sampling\n    PROMPT hi\n    ${line}\n`;
+
+  it("rejects an unknown RESPONSE_FORMAT", () => {
+    assert.throws(
+      () => parseDsl(sampling("RESPONSE_FORMAT xml")),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /RESPONSE_FORMAT must be one of/.test(err.message),
+    );
+  });
+
+  it("accepts RESPONSE_FORMAT text and json", () => {
+    assert.doesNotThrow(() => parseDsl(sampling("RESPONSE_FORMAT text")));
+    assert.doesNotThrow(() => parseDsl(sampling("RESPONSE_FORMAT json")));
+  });
+
+  it("rejects MAX_TOKENS with trailing junk (10abc)", () => {
+    assert.throws(
+      () => parseDsl(sampling("MAX_TOKENS 10abc")),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /MAX_TOKENS must be a positive integer/.test(err.message),
+    );
+  });
+
+  it("rejects MAX_TOKENS of 0 and negatives", () => {
+    assert.throws(
+      () => parseDsl(sampling("MAX_TOKENS 0")),
+      (err: unknown) => err instanceof DslParseError,
+    );
+    assert.throws(
+      () => parseDsl(sampling("MAX_TOKENS -5")),
+      (err: unknown) => err instanceof DslParseError,
+    );
+  });
+
+  it("rejects MAX_TOKENS above the allowed limit", () => {
+    assert.throws(
+      () => parseDsl(sampling("MAX_TOKENS 2000000")),
+      (err: unknown) =>
+        err instanceof DslParseError && /between 1 and/.test(err.message),
+    );
+  });
+
+  it("accepts a valid MAX_TOKENS value", () => {
+    assert.doesNotThrow(() => parseDsl(sampling("MAX_TOKENS 2000")));
+  });
+});
+
+describe("parseDsl - WORKFLOW name safety", () => {
+  const withName = (name: string) =>
+    `PROJECT p\nDESCRIPTION d\nWORKFLOW ${name}\n  DESCRIPTION d\n  STEP t : transform\n    EXPRESSION 1\n`;
+
+  it("rejects a path-traversal workflow name", () => {
+    assert.throws(
+      () => parseDsl(withName("../server")),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /Invalid WORKFLOW name/.test(err.message),
+    );
+  });
+
+  it("rejects a workflow name with a slash", () => {
+    assert.throws(
+      () => parseDsl(withName("a/b")),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /Invalid WORKFLOW name/.test(err.message),
+    );
+  });
+
+  it("rejects a workflow name that does not start alphanumeric", () => {
+    assert.throws(
+      () => parseDsl(withName("-bad")),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /Invalid WORKFLOW name/.test(err.message),
+    );
+  });
+
+  it("accepts valid workflow names", () => {
+    assert.doesNotThrow(() => parseDsl(withName("send_message")));
+    assert.doesNotThrow(() => parseDsl(withName("v2.report-daily")));
+  });
+});
+
+describe("parseDsl - MAP nesting and SCHEMA size limits", () => {
+  const wrapMap = (map: string) =>
+    `PROJECT p\nDESCRIPTION d\nWORKFLOW w\n  DESCRIPTION d\n  STEP t : api_call\n    OPERATION op\n    ${map}\n`;
+
+  it("rejects a MAP path that exceeds the maximum nesting depth", () => {
+    const deepPath = Array.from({ length: 12 }, (_, i) => `k${i}`).join(".");
+    assert.throws(
+      () => parseDsl(wrapMap(`MAP ${deepPath} = 1`)),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /exceeds maximum nesting depth/.test(err.message),
+    );
+  });
+
+  it("accepts a MAP path at a reasonable depth", () => {
+    assert.doesNotThrow(() => parseDsl(wrapMap("MAP a.b.c = 1")));
+  });
+
+  it("rejects an oversized inline SCHEMA", () => {
+    const huge = "x".repeat(100 * 1024 + 1);
+    const dsl = `PROJECT p\nDESCRIPTION d\nWORKFLOW w\n  DESCRIPTION d\n  STEP t : elicitation\n    MESSAGE hi\n    SCHEMA {"type":"string","title":"${huge}"}\n`;
+    assert.throws(
+      () => parseDsl(dsl),
+      (err: unknown) =>
+        err instanceof DslParseError &&
+        /SCHEMA exceeds maximum size/.test(err.message),
+    );
+  });
+});

@@ -1,8 +1,13 @@
 import { DslScanner } from "./scanner.js";
 import {
+  MAX_SCHEMA_SIZE,
+  MAX_TOKENS_LIMIT,
+  STEP_KEYWORD_TYPES,
   VALID_PARAM_TYPES,
+  VALID_RESPONSE_FORMATS,
   VALID_STEP_TYPES,
   VALID_WEBHOOK_METHODS,
+  WORKFLOW_NAME_RE,
 } from "./constants.js";
 import {
   DslParseError,
@@ -12,6 +17,7 @@ import {
   type ParseDslResult,
 } from "./types.js";
 import {
+  assertNoReservedKeys,
   buildDotPath,
   deepMerge,
   isBlockBoundary,
@@ -70,6 +76,19 @@ function parseStep(scanner: DslScanner): DslStep {
 
     const lineNumber = scanner.lineNumber;
     const line = scanner.consumeLine().trim();
+
+    // Reject keywords that do not apply to this step type (e.g. MAP in a
+    // transform step) instead of parsing them and silently dropping the value
+    // downstream.
+    const keyword = line.split(/\s+/)[0];
+    const allowedTypes = STEP_KEYWORD_TYPES[keyword];
+    if (allowedTypes && !allowedTypes.includes(type)) {
+      throw new DslParseError(
+        lineNumber,
+        `Keyword "${keyword}" is not valid in a "${type}" step ` +
+          `(only allowed in: ${allowedTypes.join(", ")})`,
+      );
+    }
 
     if (line.startsWith("LABEL ")) {
       step.label = line.slice("LABEL ".length).trim();
@@ -139,7 +158,8 @@ function parseStep(scanner: DslScanner): DslStep {
       }
 
       const value = parseValue(rawValue);
-      const nested = buildDotPath(dotPath, value);
+      assertNoReservedKeys(value, lineNumber);
+      const nested = buildDotPath(dotPath, value, lineNumber);
       if (!step.inputMapping) step.inputMapping = {};
       deepMerge(step.inputMapping, nested);
       continue;
@@ -216,16 +236,35 @@ function parseStep(scanner: DslScanner): DslStep {
     }
 
     if (line.startsWith("MAX_TOKENS ")) {
-      const val = parseInt(line.slice("MAX_TOKENS ".length).trim(), 10);
-      if (isNaN(val)) {
-        throw new DslParseError(lineNumber, "MAX_TOKENS must be a number");
+      const raw = line.slice("MAX_TOKENS ".length).trim();
+      // Reject trailing junk like "10abc" that parseInt would silently
+      // truncate to 10.
+      if (!/^\d+$/.test(raw)) {
+        throw new DslParseError(
+          lineNumber,
+          `MAX_TOKENS must be a positive integer, got "${raw}"`,
+        );
+      }
+      const val = parseInt(raw, 10);
+      if (val <= 0 || val > MAX_TOKENS_LIMIT) {
+        throw new DslParseError(
+          lineNumber,
+          `MAX_TOKENS must be between 1 and ${MAX_TOKENS_LIMIT.toLocaleString("en-US")}`,
+        );
       }
       step.maxTokens = val;
       continue;
     }
 
     if (line.startsWith("RESPONSE_FORMAT ")) {
-      step.responseFormat = line.slice("RESPONSE_FORMAT ".length).trim();
+      const val = line.slice("RESPONSE_FORMAT ".length).trim();
+      if (!(VALID_RESPONSE_FORMATS as readonly string[]).includes(val)) {
+        throw new DslParseError(
+          lineNumber,
+          `RESPONSE_FORMAT must be one of: ${VALID_RESPONSE_FORMATS.join(", ")}, got "${val}"`,
+        );
+      }
+      step.responseFormat = val;
       continue;
     }
 
@@ -276,6 +315,12 @@ function parseStep(scanner: DslScanner): DslStep {
       const rest = line.slice("SCHEMA".length).trim();
       if (rest === "<<<") {
         const raw = scanner.consumeHeredoc(lineNumber);
+        if (raw.length > MAX_SCHEMA_SIZE) {
+          throw new DslParseError(
+            lineNumber,
+            `SCHEMA exceeds maximum size of ${MAX_SCHEMA_SIZE / 1024} KB`,
+          );
+        }
         try {
           step.requestedSchema = JSON.parse(raw);
         } catch {
@@ -290,6 +335,12 @@ function parseStep(scanner: DslScanner): DslStep {
           "SCHEMA requires inline JSON or heredoc (<<<)",
         );
       } else {
+        if (rest.length > MAX_SCHEMA_SIZE) {
+          throw new DslParseError(
+            lineNumber,
+            `SCHEMA exceeds maximum size of ${MAX_SCHEMA_SIZE / 1024} KB`,
+          );
+        }
         try {
           step.requestedSchema = JSON.parse(rest);
         } catch {
@@ -407,6 +458,14 @@ function parseWorkflow(scanner: DslScanner): DslWorkflow {
   const name = headerLine.slice("WORKFLOW ".length).trim();
   if (!name) {
     throw new DslParseError(headerLineNumber, "WORKFLOW requires a name");
+  }
+  if (!WORKFLOW_NAME_RE.test(name)) {
+    throw new DslParseError(
+      headerLineNumber,
+      `Invalid WORKFLOW name "${name}": must start with a letter or number and ` +
+        "contain only letters, numbers, dots, hyphens, and underscores " +
+        "(it becomes a file name and code identifier)",
+    );
   }
 
   const workflow: DslWorkflow = { name, description: "", steps: [] };
@@ -626,9 +685,22 @@ export function parseDsl(dsl: string): ParseDslResult {
     const lineNumber = scanner.lineNumber;
 
     if (line.startsWith("PROJECT ")) {
+      if (projectName !== undefined) {
+        throw new DslParseError(
+          lineNumber,
+          "Duplicate PROJECT declaration (a project can only be named once)",
+        );
+      }
       scanner.consumeLine();
       projectName = line.slice("PROJECT ".length).trim();
+      if (!projectName) {
+        throw new DslParseError(lineNumber, "PROJECT requires a name");
+      }
       continue;
+    }
+
+    if (line === "PROJECT") {
+      throw new DslParseError(lineNumber, "PROJECT requires a name");
     }
 
     if (line.startsWith("DESCRIPTION ") && workflows.length === 0) {
