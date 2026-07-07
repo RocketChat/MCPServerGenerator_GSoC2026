@@ -19,6 +19,35 @@ export function extractPath(value: unknown, path: string): unknown {
   }, value);
 }
 
+/**
+ * Substitute `{name}` placeholders in an endpoint path with values from the
+ * payload, URL-encoding each value and removing the consumed keys so the same
+ * values are not also sent as query params (GET) or body fields (writes).
+ *
+ * OpenAPI path parameters are required by definition, so a placeholder with no
+ * usable payload value throws — surfacing a malformed request early instead of
+ * sending `/api/apps/public/{app-id}/incoming` verbatim to the server.
+ */
+function substitutePathParams(
+  path: string,
+  payload: Record<string, unknown>,
+  operationId: string,
+): string {
+  return path.replace(/\{([^}]+)\}/g, (_match, rawName: string) => {
+    const name = rawName.trim();
+    const value = payload[name];
+    if (value === undefined || value === null || value === "") {
+      throw new Error(
+        `API call "${operationId}" is missing required path parameter "${name}".`,
+      );
+    }
+    delete payload[name];
+    return typeof value === "object"
+      ? encodeURIComponent(JSON.stringify(value))
+      : encodeURIComponent(String(value));
+  });
+}
+
 /** Build a `path?query` string from a payload for GET requests. */
 function buildGetUrl(path: string, payload: Record<string, unknown>): string {
   const search = new URLSearchParams();
@@ -77,9 +106,13 @@ async function callOnce(
     );
   }
   const method = endpoint.method.toUpperCase();
-  const path = endpoint.path;
+  const rawPath = endpoint.path;
 
   pruneEmptyParams(step, payload, state);
+
+  // Replace `{param}` placeholders in the path from the payload and drop those
+  // keys so they are not duplicated into the query string or request body.
+  const path = substitutePathParams(rawPath, payload, step.operationId);
 
   if (method === "GET") {
     // Decode JSON-looking string values so they ride along as query params.
@@ -159,6 +192,7 @@ export async function executeApiCall(
     }
 
     const results: unknown[] = new Array(collection.length).fill(null);
+    const failures: Array<{ index: number; error: string }> = [];
     for (let i = 0; i < collection.length; i += DEFAULT_FOREACH_CONCURRENCY) {
       const slice = collection.slice(i, i + DEFAULT_FOREACH_CONCURRENCY);
       const settled = await Promise.allSettled(
@@ -176,12 +210,39 @@ export async function executeApiCall(
       );
       for (let j = 0; j < settled.length; j++) {
         const r = settled[j];
-        if (r.status === "fulfilled") results[i + j] = r.value;
+        const index = i + j;
+        if (r.status === "fulfilled") {
+          results[index] = r.value;
+        } else {
+          failures.push({
+            index,
+            error:
+              r.reason instanceof Error ? r.reason.message : String(r.reason),
+          });
+        }
       }
     }
 
+    if (failures.length > 0) {
+      const summary = failures
+        .map((f) => `item ${f.index}: ${f.error}`)
+        .join("; ");
+      // Fail-fast (default): a bulk action must not report success when any
+      // side effect failed. Opt into partial success with `continueOnError`.
+      if (!config.continueOnError) {
+        throw new Error(
+          `forEach had ${failures.length}/${collection.length} failed ` +
+            `iteration(s): ${summary}`,
+        );
+      }
+      // Partial success is now explicit: failed items stay `null` in the
+      // result array and the per-item errors are recorded on the step.
+      state.errors[step.id] =
+        `${failures.length}/${collection.length} iteration(s) failed: ${summary}`;
+    }
+
     state.steps[step.id] = results;
-    state.status[step.id] = "success";
+    state.status[step.id] = failures.length > 0 ? "partial" : "success";
     state.completed.push(step.id);
     return;
   }
