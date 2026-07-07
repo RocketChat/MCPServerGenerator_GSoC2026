@@ -17,6 +17,7 @@ import type {
   GenerateProjectInput,
   GenerateProjectResult,
 } from "./types.js";
+import type { WorkflowDefinition } from "../workflow/types.js";
 
 /** Normalize an arbitrary name into a valid lowercase package/server name. */
 export function sanitizeServerName(name: string): string {
@@ -27,6 +28,39 @@ export function sanitizeServerName(name: string): string {
     .replace(/^_+|_+$/g, "");
   const safe = /^[a-z]/.test(cleaned) ? cleaned : `mcp_${cleaned}`;
   return safe || "mcp_server";
+}
+
+/**
+ * Reduce a workflow name to a safe module basename for `src/tools/<name>.ts`.
+ * The result only contains `[A-Za-z0-9_]` and always starts with a letter or
+ * underscore, so it is safe both as a filename and when embedded in an import
+ * specifier — a workflow name is otherwise unconstrained DSL text.
+ */
+export function sanitizeModuleName(name: string): string {
+  const cleaned = name
+    .trim()
+    .replace(/[^A-Za-z0-9_]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+  if (cleaned === "") return "tool";
+  return /^[A-Za-z_]/.test(cleaned) ? cleaned : `tool_${cleaned}`;
+}
+
+/**
+ * Assign a unique module basename to each workflow (aligned by index),
+ * disambiguating collisions produced by sanitization with a numeric suffix.
+ */
+export function assignModuleNames(workflows: WorkflowDefinition[]): string[] {
+  const used = new Set<string>();
+  return workflows.map((workflow) => {
+    const base = sanitizeModuleName(workflow.name);
+    let candidate = base;
+    let counter = 2;
+    while (used.has(candidate)) {
+      candidate = `${base}_${counter++}`;
+    }
+    used.add(candidate);
+    return candidate;
+  });
 }
 
 /** Assemble the full set of files for a generated MCP server project. */
@@ -48,22 +82,36 @@ export function generateProject(
   // Vendored engine.
   files.push(...bundleEngine());
 
-  // One tool file per workflow.
-  for (const workflow of workflows) {
+  // One tool file per workflow, keyed by a safe, unique module basename so an
+  // arbitrary workflow name can never break the filename or its import.
+  const moduleNames = assignModuleNames(workflows);
+  workflows.forEach((workflow, i) => {
     files.push({
-      path: `src/tools/${workflow.name}.ts`,
+      path: `src/tools/${moduleNames[i]}.ts`,
       content: generateToolFile(workflow),
     });
-  }
+  });
 
   // Wiring + scaffolding.
-  files.push({ path: "src/endpoints.ts", content: generateEndpointMap(endpoints) });
+  files.push({
+    path: "src/endpoints.ts",
+    content: generateEndpointMap(endpoints),
+  });
   files.push({ path: "src/rc-client.ts", content: generateRcClient() });
-  files.push({ path: "src/server.ts", content: generateServerEntry(serverName, workflows) });
-  files.push({ path: "package.json", content: generatePackageJson(serverName) });
+  files.push({
+    path: "src/server.ts",
+    content: generateServerEntry(serverName, workflows, moduleNames),
+  });
+  files.push({
+    path: "package.json",
+    content: generatePackageJson(serverName),
+  });
   files.push({ path: "tsconfig.json", content: generateTsConfig() });
   files.push({ path: ".gitignore", content: generateGitignore() });
-  files.push({ path: ".env.example", content: generateEnvExample(usesSampling) });
+  files.push({
+    path: ".env.example",
+    content: generateEnvExample(usesSampling),
+  });
   files.push({
     path: "README.md",
     content: generateReadme(serverName, workflows, endpoints),
