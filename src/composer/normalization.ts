@@ -7,9 +7,15 @@ import type {
   SamplingStep,
   TransformStep,
 } from "../workflow/types.js";
-import { ComposerError, type ComposerWarning, type ComposeStepInput } from "./types.js";
+import {
+  ComposerError,
+  type ComposerWarning,
+  type ComposeStepInput,
+} from "./types.js";
 
-export function normalizeStepFields(steps: ComposeStepInput[]): ComposerWarning[] {
+export function normalizeStepFields(
+  steps: ComposeStepInput[],
+): ComposerWarning[] {
   const warnings: ComposerWarning[] = [];
   for (const step of steps) {
     const cfg = step.config as unknown as Record<string, unknown>;
@@ -35,7 +41,6 @@ export function normalizeStepFields(steps: ComposeStepInput[]): ComposerWarning[
   return warnings;
 }
 
-
 export function normalizeEventParamShorthand(
   steps: ComposeStepInput[],
   params: JSONSchema7,
@@ -44,7 +49,13 @@ export function normalizeEventParamShorthand(
   const paramProps = params.properties ? Object.keys(params.properties) : [];
   if (paramProps.length === 0) return warnings;
 
-  // Collect forEach iteration variable names so we don't rewrite them as params
+  // Reserve every forEach loop-variable name so it is never rewritten as an
+  // event param. A name that is declared as a `forEach ... as <alias>` always
+  // wins over a same-named param: references to it are loop variables, not
+  // params. Reserving them globally (rather than per-step) is deliberate — it
+  // guarantees an out-of-scope alias reference cannot be silently "rescued"
+  // into a `params.*` reference here, so it still reaches the scope check in
+  // normalizeTemplateFields and fails there instead of resolving to empty.
   const forEachAsVars = new Set<string>();
   for (const step of steps) {
     if (step.config.type === "api_call" && (step.config as ApiCallStep).as) {
@@ -136,7 +147,7 @@ export function normalizeEventParamShorthand(
   }
 
   function rewriteJs(stepId: string, value: string, fieldName: string): string {
-    let result = value;
+    const result = value;
     for (const rule of jsRewriters) {
       if (rule.re.test(result)) {
         warnings.push({
@@ -260,8 +271,8 @@ function convertHandlebarsBlocks(
   if (unsupportedBlock) {
     throw new ComposerError(
       `Step "${stepId}" field "${fieldName}" uses unsupported Handlebars helper "{{#${unsupportedBlock[1]}}}". ` +
-      `The template engine uses {{jsExpression}} syntax. ` +
-      `Use JavaScript expressions instead (e.g. array.map(), ternary operators).`,
+        `The template engine uses {{jsExpression}} syntax. ` +
+        `Use JavaScript expressions instead (e.g. array.map(), ternary operators).`,
     );
   }
 
@@ -274,8 +285,8 @@ function convertHandlebarsBlocks(
     if (/\{\{#(each|if)\b/.test(body)) {
       throw new ComposerError(
         `Step "${stepId}" field "${fieldName}" uses nested Handlebars blocks which cannot be auto-converted. ` +
-        `Use JavaScript expressions instead. Example: ` +
-        `{{${col}.map(item => item.name + ": " + item.value).join("\\n")}}`,
+          `Use JavaScript expressions instead. Example: ` +
+          `{{${col}.map(item => item.name + ": " + item.value).join("\\n")}}`,
       );
     }
 
@@ -316,8 +327,8 @@ function convertHandlebarsBlocks(
     } catch {
       throw new ComposerError(
         `Step "${stepId}" field "${fieldName}": auto-converted Handlebars {{#each}} failed to compile. ` +
-        `Original: "${_.trim()}". Converted: "${expr}". ` +
-        `Use JavaScript expressions directly instead.`,
+          `Original: "${_.trim()}". Converted: "${expr}". ` +
+          `Use JavaScript expressions directly instead.`,
       );
     }
 
@@ -379,20 +390,38 @@ function convertHandlebarsBlocks(
   return result;
 }
 
-export function normalizeTemplateFields(steps: ComposeStepInput[]): ComposerWarning[] {
+export function normalizeTemplateFields(
+  steps: ComposeStepInput[],
+): ComposerWarning[] {
   const warnings: ComposerWarning[] = [];
 
-  const asVars = new Set<string>();
+  // A `forEach ... as <alias>` declaration introduces a per-iteration loop
+  // variable. That variable ONLY exists while its owning step iterates, so it
+  // is only valid inside that step's own `inputMapping`. It must never leak
+  // into sibling/downstream steps: at runtime the alias is undefined there and
+  // silently resolves to empty. We therefore track every alias together with
+  // the id(s) of the step(s) that own it, so out-of-scope references can be
+  // rejected instead of blindly rewritten.
+  const aliasNames = new Set<string>();
+  const aliasOwners = new Map<string, string[]>();
   for (const step of steps) {
     if (step.config.type === "api_call" && (step.config as ApiCallStep).as) {
-      asVars.add((step.config as ApiCallStep).as!);
+      const alias = (step.config as ApiCallStep).as!;
+      aliasNames.add(alias);
+      const owners = aliasOwners.get(alias) ?? [];
+      owners.push(step.id);
+      aliasOwners.set(alias, owners);
     }
   }
 
+  // `scopedAlias` is the loop variable that is legal to reference in the field
+  // currently being normalized (undefined when no alias is in scope). Only the
+  // owning step's `inputMapping` passes a defined value.
   function normalizeString(
     stepId: string,
     value: string,
     fieldName: string,
+    scopedAlias?: string,
   ): string {
     // Collapse \n / \\n / \\\n → real newline (LLMs often multi-escape in JSON tool args)
     let result = value.replace(/\\+n/g, "\n").replace(/\\+t/g, "\t");
@@ -412,19 +441,38 @@ export function normalizeTemplateFields(steps: ComposeStepInput[]): ComposerWarn
       result = wrapped;
     }
 
-    for (const asVar of asVars) {
+    // forEach alias handling — strictly scoped to the owning step's inputMapping.
+    // Inside that scope the shorthand `{{alias.field}}` is rewritten to the
+    // canonical `{{steps.alias.field}}`. Anywhere else, a reference to a known
+    // alias is a scope violation and fails composition, because it would
+    // resolve to an empty value at runtime.
+    for (const alias of aliasNames) {
       const asRefRe = new RegExp(
-        `\\{\\{${asVar}\\.(\\w+(?:\\.\\w+)*)\\}\\}`,
+        `\\{\\{${alias}\\.(\\w+(?:\\.\\w+)*)\\}\\}`,
         "g",
       );
-      const rewritten = result.replace(asRefRe, `{{steps.${asVar}.$1}}`);
-      if (rewritten !== result) {
-        warnings.push({
-          stepId,
-          code: "AS_VAR_REWRITTEN",
-          message: `Rewritten as-variable reference in ${fieldName}: "${result}" → "${rewritten}"`,
-        });
-        result = rewritten;
+      if (alias === scopedAlias) {
+        const rewritten = result.replace(asRefRe, `{{steps.${alias}.$1}}`);
+        if (rewritten !== result) {
+          warnings.push({
+            stepId,
+            code: "AS_VAR_REWRITTEN",
+            message: `Rewritten as-variable reference in ${fieldName}: "${result}" → "${rewritten}"`,
+          });
+          result = rewritten;
+        }
+      } else if (asRefRe.test(result)) {
+        const owners = aliasOwners.get(alias) ?? [];
+        const ownerHint =
+          owners.length > 0
+            ? `step "${owners.join('", "')}"`
+            : "the step that declares it";
+        throw new ComposerError(
+          `Step "${stepId}" references forEach alias "${alias}" in ${fieldName}, ` +
+            `but "${alias}" is a loop variable that only exists inside the inputMapping of ${ownerHint}. ` +
+            `A forEach alias cannot be used outside the step that declares it — the value would be empty at runtime. ` +
+            `Move this logic into the loop step, or reference the completed step result via "steps.<stepId>" instead.`,
+        );
       }
     }
 
@@ -446,10 +494,11 @@ export function normalizeTemplateFields(steps: ComposeStepInput[]): ComposerWarn
     stepId: string,
     value: unknown,
     fieldName: string,
+    scopedAlias?: string,
   ): unknown {
     if (typeof value === "string") {
       // Detect stringified JSON objects/arrays and parse them back to native types
-      if (/^\s*[\[{]/.test(value)) {
+      if (/^\s*[[{]/.test(value)) {
         try {
           const parsed = JSON.parse(value);
           if (typeof parsed === "object" && parsed !== null) {
@@ -458,21 +507,23 @@ export function normalizeTemplateFields(steps: ComposeStepInput[]): ComposerWarn
               code: "STRINGIFIED_JSON_PARSED",
               message: `Auto-parsed stringified JSON in ${fieldName}: "${value.length > 60 ? value.slice(0, 60) + "..." : value}"`,
             });
-            return normalizeValue(stepId, parsed, fieldName);
+            return normalizeValue(stepId, parsed, fieldName, scopedAlias);
           }
-        } catch { }
+        } catch {
+          // Not valid JSON — leave the string as-is for template normalization.
+        }
       }
-      return normalizeString(stepId, value, fieldName);
+      return normalizeString(stepId, value, fieldName, scopedAlias);
     }
     if (Array.isArray(value)) {
       return value.map((item, i) =>
-        normalizeValue(stepId, item, `${fieldName}[${i}]`),
+        normalizeValue(stepId, item, `${fieldName}[${i}]`, scopedAlias),
       );
     }
     if (typeof value === "object" && value !== null) {
       const result: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(value)) {
-        result[k] = normalizeValue(stepId, v, `${fieldName}.${k}`);
+        result[k] = normalizeValue(stepId, v, `${fieldName}.${k}`, scopedAlias);
       }
       return result;
     }
@@ -507,14 +558,19 @@ export function normalizeTemplateFields(steps: ComposeStepInput[]): ComposerWarn
           }
         }
 
+        // The loop alias is in scope only within THIS step's inputMapping.
+        const ownedAlias = apiCfg.forEach ? apiCfg.as : undefined;
         if (apiCfg.inputMapping) {
           apiCfg.inputMapping = normalizeValue(
             step.id,
             apiCfg.inputMapping,
             "inputMapping",
+            ownedAlias,
           ) as Record<string, unknown>;
         }
         if (apiCfg.forEach) {
+          // `forEach` is the collection expression, evaluated before iteration
+          // begins — the loop alias does not exist yet, so it is NOT in scope here.
           apiCfg.forEach = normalizeString(step.id, apiCfg.forEach, "forEach");
         }
         break;
@@ -583,7 +639,9 @@ export function normalizeTemplateFields(steps: ComposeStepInput[]): ComposerWarn
   return warnings;
 }
 
-export function flattenNestedSteps(steps: ComposeStepInput[]): ComposerWarning[] {
+export function flattenNestedSteps(
+  steps: ComposeStepInput[],
+): ComposerWarning[] {
   const warnings: ComposerWarning[] = [];
   const extracted: ComposeStepInput[] = [];
 
@@ -615,4 +673,3 @@ export function flattenNestedSteps(steps: ComposeStepInput[]): ComposerWarning[]
   steps.push(...extracted);
   return warnings;
 }
-
