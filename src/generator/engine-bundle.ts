@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { GeneratedFile } from "./types.js";
@@ -12,7 +12,7 @@ import type { GeneratedFile } from "./types.js";
  * the workflow barrel re-exports the composer (compile-time only), so the
  * generated project gets a slim engine barrel instead (see ENGINE_INDEX).
  */
-const ENGINE_MODULES = [
+export const ENGINE_MODULES = [
   "types.ts",
   "expression-security.ts",
   "templates.ts",
@@ -29,9 +29,41 @@ export * from "./sampling.js";
 export * from "./executor.js";
 `;
 
-/** Locate this package's `src/workflow` directory relative to this module. */
-function workflowDir(): string {
-  return join(dirname(fileURLToPath(import.meta.url)), "..", "workflow");
+/** Walk up from `startDir` until a directory containing `package.json` is found. */
+function findPackageRoot(startDir: string): string {
+  let dir = startDir;
+  for (;;) {
+    if (existsSync(join(dir, "package.json"))) return dir;
+    const parent = dirname(dir);
+    if (parent === dir) return startDir;
+    dir = parent;
+  }
+}
+
+/**
+ * Locate the directory holding the engine `.ts` sources, tolerating every run
+ * layout:
+ *   - from source via tsx: `src/generator` -> `src/workflow`;
+ *   - from a built package: `dist/generator` -> `dist/workflow` (the build step
+ *     copies the `.ts` sources next to the compiled output);
+ *   - as a last resort, the always-present `src/workflow` under the package
+ *     root, so a bare `tsc` build (without the copy step) still works.
+ *
+ * The first candidate that actually contains the engine sources wins.
+ */
+export function workflowDir(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const candidates = [
+    join(here, "..", "workflow"),
+    join(findPackageRoot(here), "src", "workflow"),
+  ];
+  const probe = ENGINE_MODULES[0];
+  for (const dir of candidates) {
+    if (existsSync(join(dir, probe))) return dir;
+  }
+  // Nothing found — return the primary candidate so the caller surfaces a
+  // clear ENOENT naming the exact missing engine source.
+  return candidates[0];
 }
 
 /**

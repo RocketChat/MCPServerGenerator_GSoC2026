@@ -54,7 +54,7 @@ export interface WorkflowServer {
   }): Promise<{ action: string; content?: unknown }>;
 }
 
-export type StepStatus = "success" | "skipped" | "error";
+export type StepStatus = "success" | "skipped" | "error" | "partial";
 
 export interface ExecutionState {
   params: Record<string, unknown>;
@@ -418,13 +418,12 @@ export async function runWorkflow(
       }
     }
 
+    const hasStepErrors = Object.keys(state.errors).length > 0;
     return {
-      status: "success",
+      status: hasStepErrors ? "partial" : "success",
       completedSteps: state.completed,
       stepResults: state.steps,
-      ...(Object.keys(state.errors).length > 0
-        ? { stepErrors: state.errors }
-        : {}),
+      ...(hasStepErrors ? { stepErrors: state.errors } : {}),
     };
   } catch (err) {
     return {

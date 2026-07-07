@@ -46,7 +46,8 @@ export async function handleGenerate(
     ...new Set(composed.workflows.flatMap((w) => w.requiredEndpoints)),
   ].filter(Boolean);
 
-  let endpoints: GeneratorEndpoint[] = [];
+  let endpoints: GeneratorEndpoint[];
+  let correctedIds: ReadonlyMap<string, string>;
   try {
     const resolved = await parser.getFullEndpoints(operationIds);
     endpoints = resolved.endpoints.map((ep) => ({
@@ -55,15 +56,48 @@ export async function handleGenerate(
       path: ep.path,
       summary: ep.summary,
     }));
+    correctedIds = resolved.correctedIds;
   } catch (err) {
     return fail(
       `Failed to resolve endpoints: ${err instanceof Error ? err.message : String(err)}`,
     );
   }
 
-  const missing = operationIds.filter(
-    (id) => !endpoints.some((ep) => ep.operationId === id),
+  // Map every requested operationId to the endpoint it actually resolved to
+  // (the parser auto-corrects near-misses and reports them via correctedIds).
+  const resolvedIds = new Set(endpoints.map((ep) => ep.operationId));
+  const actualFor = (id: string): string => correctedIds.get(id) ?? id;
+
+  // Fail closed: refuse to generate if any operationId cannot be resolved to a
+  // real endpoint. Generating anyway produces tools whose api_call steps fall
+  // back to an empty GET path at runtime.
+  const unresolved = operationIds.filter(
+    (id) => !resolvedIds.has(actualFor(id)),
   );
+  if (unresolved.length > 0) {
+    return fail(
+      `Cannot generate: ${unresolved.length} operationId(s) could not be resolved to an endpoint: ` +
+        `${unresolved.join(", ")}. ` +
+        `Verify them with get_endpoint_schemas and fix the OPERATION lines in the DSL.`,
+    );
+  }
+
+  // Rewrite corrected operationIds into the composed workflows so the embedded
+  // steps and the generated endpoint map agree — otherwise a corrected id would
+  // be missing from the map and hit the empty-GET fallback at runtime.
+  const corrected: string[] = [];
+  for (const workflow of composed.workflows) {
+    for (const step of workflow.steps) {
+      if (step.config.type === "api_call") {
+        const actual = actualFor(step.config.operationId);
+        if (actual !== step.config.operationId) {
+          corrected.push(`${step.config.operationId} -> ${actual}`);
+          step.config.operationId = actual;
+        }
+      }
+    }
+    workflow.requiredEndpoints = workflow.requiredEndpoints.map(actualFor);
+  }
 
   let result;
   try {
@@ -100,10 +134,8 @@ export async function handleGenerate(
       result.summary.usesElicitation ? "yes" : "no"
     }`,
   ];
-  if (missing.length > 0) {
-    lines.push(
-      `  Unresolved operationIds (verify these): ${missing.join(", ")}`,
-    );
+  if (corrected.length > 0) {
+    lines.push(`  Auto-corrected operationIds: ${corrected.join(", ")}`);
   }
   if (composed.warnings.length > 0) {
     lines.push(

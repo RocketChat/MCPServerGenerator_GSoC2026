@@ -1,5 +1,6 @@
 import type { WorkflowDefinition } from "../workflow/types.js";
 import type { GeneratorEndpoint } from "./types.js";
+import { escapeMarkdownCell } from "./escape.js";
 
 /** Generate `src/rc-client.ts` — a Rocket.Chat HTTP client implementing WorkflowClient. */
 export function generateRcClient(): string {
@@ -215,13 +216,17 @@ export function generateReadme(
       if (w.usesSampling) features.push("AI");
       if (w.usesElicitation) features.push("Human-in-loop");
       const badge = features.length > 0 ? features.join(", ") : "Automation";
-      return `| \`${w.name}\` | ${w.description} | ${w.steps.length} | ${badge} |`;
+      return `| \`${escapeMarkdownCell(w.name)}\` | ${escapeMarkdownCell(
+        w.description,
+      )} | ${w.steps.length} | ${badge} |`;
     })
     .join("\n");
   const endpointRows = endpoints
     .map(
       (ep) =>
-        `| \`${ep.operationId}\` | \`${ep.method.toUpperCase()}\` | \`${ep.path}\` |`,
+        `| \`${escapeMarkdownCell(ep.operationId)}\` | \`${escapeMarkdownCell(
+          ep.method.toUpperCase(),
+        )}\` | \`${escapeMarkdownCell(ep.path)}\` |`,
     )
     .join("\n");
 
