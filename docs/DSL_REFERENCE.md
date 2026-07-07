@@ -6,7 +6,7 @@
 
 ## 1. Overview
 
-The DSL is **flat and line-oriented**: every meaningful line is `KEYWORD value`. There is no significant indentation (indentation is cosmetic and trimmed). A document declares one **project**, which contains one or more **workflows**, each containing one or more **steps**. Each workflow becomes one MCP tool; each step is one unit of work (an API call, an LLM call, a user prompt, a data transform, or a branch).
+The DSL is **flat and line-oriented**: every meaningful line is `KEYWORD value`. There is no significant indentation (indentation is cosmetic and trimmed). A document declares one **project**, which contains one or more **workflows** (and, optionally, one or more top-level **webhook** endpoints — see §12), each workflow containing one or more **steps**. Each workflow becomes one MCP tool; each step is one unit of work (an API call, an LLM call, a user prompt, a data transform, or a branch).
 
 ```
 PROJECT <name>
@@ -26,7 +26,7 @@ Design goal: be robust against the ways an LLM mangles structured formats. Keywo
 ## 2. Grammar (EBNF-style)
 
 ```ebnf
-document        = project_decl , project_desc , { workflow } ;
+document        = project_decl , project_desc , { workflow | webhook } ;
 
 project_decl    = "PROJECT" , WS , name , NL ;
 project_desc    = "DESCRIPTION" , WS , text , NL ;
@@ -41,8 +41,18 @@ step            = "STEP" , WS , id , ":" , step_type , NL ,
 
 step_field      = label | depends | operation | output_path | for_each | as
                 | map | expression | condition | then | else
-                | prompt | system_prompt | max_tokens | response_format
+                | prompt | system_prompt | content_text | content_image
+                | max_tokens | response_format
                 | message | schema | on_decline | continue_on_error ;
+
+content_text    = "CONTENT_TEXT" , ( WS , text | heredoc ) , NL ;
+content_image   = "CONTENT_IMAGE" , WS , url , NL ;
+
+webhook         = "WEBHOOK" , WS , path , NL ,
+                  { webhook_desc | methods } ;
+webhook_desc    = "DESCRIPTION" , WS , text , NL ;
+methods         = "METHODS" , WS , method , { WS , method } , NL ;
+method          = "get" | "post" ;
 
 heredoc         = WS , "<<<" , NL , { any_line , NL } , ">>>" , NL ;
 
@@ -56,10 +66,12 @@ comment         = "#" , text , NL ;
 ## 3. Lexical Rules
 
 ### 3.1 Lines & whitespace
+
 - Line endings are normalized to `\n` before parsing.
 - Leading/trailing whitespace on a line is trimmed. Indentation carries no meaning.
 
 ### 3.2 Comments
+
 Only lines whose first non-whitespace character is `#` are comments.
 
 ```
@@ -68,7 +80,9 @@ MAP channel = #workspace-admin    <- NOT a comment; "#workspace-admin" is the va
 ```
 
 ### 3.3 Required document structure
+
 A valid document must have:
+
 1. exactly one `PROJECT <name>` (must be first meaningful line),
 2. a project-level `DESCRIPTION`,
 3. at least one `WORKFLOW`.
@@ -77,9 +91,9 @@ A valid document must have:
 
 ## 4. Project Level
 
-| Keyword | Form | Rules |
-| --- | --- | --- |
-| `PROJECT` | `PROJECT <name>` | First line. Name becomes the output directory. |
+| Keyword       | Form                 | Rules                                                         |
+| ------------- | -------------------- | ------------------------------------------------------------- |
+| `PROJECT`     | `PROJECT <name>`     | First line. Name becomes the output directory.                |
 | `DESCRIPTION` | `DESCRIPTION <text>` | Only recognized as project-level before the first `WORKFLOW`. |
 
 ---
@@ -100,13 +114,13 @@ WORKFLOW <name>
 
 ### 5.1 PARAM types
 
-| Type | JSON Schema type |
-| --- | --- |
-| `string` | `string` |
-| `number` | `number` |
-| `boolean` | `boolean` |
-| `object` | `object` |
-| `array` | `array` |
+| Type      | JSON Schema type |
+| --------- | ---------------- |
+| `string`  | `string`         |
+| `number`  | `number`         |
+| `boolean` | `boolean`        |
+| `object`  | `object`         |
+| `array`   | `array`          |
 
 Parameters are referenced in steps via `{{params.<name>}}`.
 
@@ -124,65 +138,71 @@ STEP <id> : <type>
 
 ### 6.1 Step types and required fields
 
-| Type | Purpose | Required | Output at runtime |
-| --- | --- | --- | --- |
-| `api_call` | Call a REST endpoint | `OPERATION` | parsed API response |
-| `sampling` | LLM reasoning/analysis | `PROMPT` | text string or parsed JSON |
-| `elicitation` | Ask the user, wait for response | `MESSAGE` | user's response |
-| `transform` | Reshape data via JS | `EXPRESSION` | whatever the expression returns |
-| `conditional` | Branch execution | `CONDITION` + (`THEN` or `ELSE`) | boolean |
+| Type          | Purpose                         | Required                                                  | Output at runtime               |
+| ------------- | ------------------------------- | --------------------------------------------------------- | ------------------------------- |
+| `api_call`    | Call a REST endpoint            | `OPERATION`                                               | parsed API response             |
+| `sampling`    | LLM reasoning/analysis          | `PROMPT` (plus optional `CONTENT_TEXT` / `CONTENT_IMAGE`) | text string or parsed JSON      |
+| `elicitation` | Ask the user, wait for response | `MESSAGE`                                                 | user's response                 |
+| `transform`   | Reshape data via JS             | `EXPRESSION`                                              | whatever the expression returns |
+| `conditional` | Branch execution                | `CONDITION` + (`THEN` or `ELSE`)                          | boolean                         |
 
 ### 6.2 Step keyword reference
 
-| Keyword | Applies to | Value | Notes |
-| --- | --- | --- | --- |
-| `LABEL` | all | text | Human label |
-| `DEPENDS ON` | all | space-separated ids | Explicit ordering (usually inferred) |
-| `OPERATION` | api_call | operationId | The REST endpoint to call |
-| `OUTPUT_PATH` | api_call | dot path | Extract a sub-field of the response |
-| `FOR_EACH` | api_call | collection expression | Iterate over items |
-| `AS` | api_call | identifier | Names the loop variable |
-| `MAP` | api_call | `path = value` | Builds the request payload |
-| `EXPRESSION` | transform | JS (inline/heredoc) | The transform body |
-| `CONDITION` | conditional | JS boolean (inline/heredoc) | The branch test |
-| `THEN` / `ELSE` | conditional | step id | Branch targets |
-| `PROMPT` | sampling | text (inline/heredoc) | The user prompt |
-| `SYSTEM_PROMPT` | sampling | text (inline/heredoc) | System instructions |
-| `MAX_TOKENS` | sampling | integer | Output cap |
-| `RESPONSE_FORMAT` | sampling | token | e.g. `json` to force JSON parsing |
-| `MESSAGE` | elicitation | text (inline/heredoc) | The question shown to the user |
-| `SCHEMA` | elicitation | JSON (inline/heredoc) | Expected shape of the response |
-| `ON_DECLINE` | elicitation | `abort` or `skip_remaining` | What to do if user declines |
-| `CONTINUE_ON_ERROR` | api_call | (flag) | Don't fail if this step errors |
+| Keyword             | Applies to  | Value                       | Notes                                                                    |
+| ------------------- | ----------- | --------------------------- | ------------------------------------------------------------------------ |
+| `LABEL`             | all         | text                        | Human label                                                              |
+| `DEPENDS ON`        | all         | space-separated ids         | Explicit ordering (usually inferred)                                     |
+| `OPERATION`         | api_call    | operationId                 | The REST endpoint to call                                                |
+| `OUTPUT_PATH`       | api_call    | dot path                    | Extract a sub-field of the response                                      |
+| `FOR_EACH`          | api_call    | collection expression       | Iterate over items                                                       |
+| `AS`                | api_call    | identifier                  | Names the loop variable                                                  |
+| `MAP`               | api_call    | `path = value`              | Builds the request payload                                               |
+| `EXPRESSION`        | transform   | JS (inline/heredoc)         | The transform body                                                       |
+| `CONDITION`         | conditional | JS boolean (inline/heredoc) | The branch test                                                          |
+| `THEN` / `ELSE`     | conditional | step id                     | Branch targets                                                           |
+| `PROMPT`            | sampling    | text (inline/heredoc)       | The user prompt. Required for sampling steps                             |
+| `SYSTEM_PROMPT`     | sampling    | text (inline/heredoc)       | System instructions                                                      |
+| `CONTENT_TEXT`      | sampling    | text (inline/heredoc)       | Extra multimodal **text** part sent alongside the prompt. Repeatable     |
+| `CONTENT_IMAGE`     | sampling    | url                         | Multimodal **image** part (by URL) sent alongside the prompt. Repeatable |
+| `MAX_TOKENS`        | sampling    | integer                     | Output cap                                                               |
+| `RESPONSE_FORMAT`   | sampling    | token                       | e.g. `json` to force JSON parsing                                        |
+| `MESSAGE`           | elicitation | text (inline/heredoc)       | The question shown to the user                                           |
+| `SCHEMA`            | elicitation | JSON (inline/heredoc)       | Expected shape of the response                                           |
+| `ON_DECLINE`        | elicitation | `abort` or `skip_remaining` | What to do if user declines                                              |
+| `CONTINUE_ON_ERROR` | api_call    | (flag)                      | Don't fail if this step errors                                           |
 
 ---
 
 ## 7. MAP: Dot-paths, Auto-typing, Merging
 
 ### 7.1 Dot-paths
+
 `MAP a.b.c = value` produces nested objects: `{ a: { b: { c: value } } }`.
 
 ### 7.2 Merging
+
 Multiple MAPs to the same step deep-merge:
 
 ```
 MAP message.rid = {{params.room_id}}
 MAP message.msg = Hello
 ```
+
 produces `{ "message": { "rid": "{{params.room_id}}", "msg": "Hello" } }`
 
 ### 7.3 Value auto-typing
 
-| Input | Result |
-| --- | --- |
-| `true` / `false` | boolean |
-| `42`, `-3.14` | number |
+| Input                              | Result              |
+| ---------------------------------- | ------------------- |
+| `true` / `false`                   | boolean             |
+| `42`, `-3.14`                      | number              |
 | `{ ... }` / `[ ... ]` (valid JSON) | parsed object/array |
-| anything else | string |
+| anything else                      | string              |
 
 Templates (`{{...}}`) are never coerced — they stay as strings.
 
 ### 7.4 MAP forbids heredoc
+
 `MAP x = <<<` throws an error. Use a transform step for complex values.
 
 ---
@@ -191,7 +211,7 @@ Templates (`{{...}}`) are never coerced — they stay as strings.
 
 Keywords that hold multi-line content support heredoc syntax: put `<<<` after the keyword, then content lines, then a line that is exactly `>>>`.
 
-Heredoc-capable keywords: `EXPRESSION`, `CONDITION`, `PROMPT`, `SYSTEM_PROMPT`, `MESSAGE`, `SCHEMA`.
+Heredoc-capable keywords: `EXPRESSION`, `CONDITION`, `PROMPT`, `SYSTEM_PROMPT`, `CONTENT_TEXT`, `MESSAGE`, `SCHEMA`.
 
 ```
 STEP categorize : transform
@@ -203,6 +223,7 @@ STEP categorize : transform
 ```
 
 Rules:
+
 - Content between `<<<` and `>>>` is captured verbatim (newlines preserved).
 - Triple-brace normalization: `{{{expr}}}` is collapsed to `{{expr}}`.
 - An empty value throws.
@@ -312,25 +333,83 @@ WORKFLOW announce
     MAP text = {{steps.draft}}
 ```
 
+### 10.4 Multimodal sampling — text + image parts
+
+A `sampling` step always needs a `PROMPT`. `CONTENT_TEXT` and `CONTENT_IMAGE` add
+extra multimodal parts (both repeatable) that are sent to the model alongside it.
+
+```
+PROJECT vision-bot
+DESCRIPTION Describes an uploaded image
+
+WORKFLOW describe_image
+  DESCRIPTION Ask the model to describe an image with extra context
+  PARAM image_url : string : URL of the image to describe
+
+  STEP describe : sampling
+    LABEL Describe the image
+    PROMPT Describe the attached image for a screen-reader user.
+    CONTENT_TEXT <<<
+      Focus on people, text, and any UI elements visible.
+    >>>
+    CONTENT_IMAGE {{params.image_url}}
+```
+
 ---
 
 ## 11. Parse-time Error Catalog
 
-| Error message | Cause |
-| --- | --- |
-| `Missing PROJECT declaration` | no `PROJECT` line |
-| `Missing project DESCRIPTION` | no project-level `DESCRIPTION` |
-| `No WORKFLOW declarations found` | zero workflows |
-| `STEP requires format "STEP id : type"` | malformed step header |
-| `Unknown step type "X"` | type not in the five valid types |
-| `PARAM type "X" invalid` | bad param type |
-| `Duplicate step ID "X"` / `Duplicate PARAM "X"` | name collisions |
-| `MAP requires format "MAP path = value"` | missing `=` |
-| `MAP does not support heredoc (<<<)` | heredoc used with MAP |
-| `Unterminated heredoc (missing >>>)` | EOF inside a heredoc |
-| `Invalid JSON in SCHEMA` | bad SCHEMA JSON |
-| `Unknown keyword "X" in step "Y"` | unrecognized keyword |
-| `Step "X" (type) requires <FIELD>` | missing required field |
-| `Step "X" has FOR_EACH without AS` | unpaired iteration keywords |
+| Error message                                                 | Cause                                 |
+| ------------------------------------------------------------- | ------------------------------------- |
+| `Missing PROJECT declaration`                                 | no `PROJECT` line                     |
+| `Missing project DESCRIPTION`                                 | no project-level `DESCRIPTION`        |
+| `No WORKFLOW declarations found`                              | zero workflows                        |
+| `STEP requires format "STEP id : type"`                       | malformed step header                 |
+| `Unknown step type "X"`                                       | type not in the five valid types      |
+| `PARAM type "X" invalid`                                      | bad param type                        |
+| `Duplicate step ID "X"` / `Duplicate PARAM "X"`               | name collisions                       |
+| `MAP requires format "MAP path = value"`                      | missing `=`                           |
+| `MAP does not support heredoc (<<<)`                          | heredoc used with MAP                 |
+| `Unterminated heredoc (missing >>>)`                          | EOF inside a heredoc                  |
+| `Invalid JSON in SCHEMA`                                      | bad SCHEMA JSON                       |
+| `Unknown keyword "X" in step "Y"`                             | unrecognized keyword                  |
+| `Step "X" (type) requires <FIELD>`                            | missing required field                |
+| `Step "X" (sampling) requires PROMPT or CONTENT_TEXT`         | sampling step with no text content    |
+| `CONTENT_TEXT requires an inline value or heredoc (<<<)`      | empty `CONTENT_TEXT`                  |
+| `Step "X" has FOR_EACH without AS`                            | unpaired iteration keywords           |
+| `WEBHOOK requires a path`                                     | bare `WEBHOOK` with no path           |
+| `WEBHOOK "X" requires at least one method (METHODS get post)` | webhook with no `METHODS`             |
+| `Invalid HTTP method "X" in WEBHOOK`                          | method other than `get` / `post`      |
+| `Unknown keyword in WEBHOOK context: "X"`                     | unrecognized keyword inside a webhook |
 
 Every error is prefixed `Line N:` for easy navigation.
+
+---
+
+## 12. Webhook Endpoints (top-level)
+
+Alongside `WORKFLOW`, a document may declare one or more top-level `WEBHOOK`
+blocks. These describe inbound HTTP endpoints the server could expose for
+external systems to call.
+
+```
+WEBHOOK /incoming-alert
+  DESCRIPTION Receives external alert payloads
+  METHODS post
+
+WEBHOOK /status
+  DESCRIPTION Health check
+  METHODS get post
+```
+
+| Keyword       | Form                    | Rules                                                    |
+| ------------- | ----------------------- | -------------------------------------------------------- |
+| `WEBHOOK`     | `WEBHOOK <path>`        | Starts a webhook block. A path is required.              |
+| `DESCRIPTION` | `DESCRIPTION <text>`    | Optional human description.                              |
+| `METHODS`     | `METHODS <m> [<m> ...]` | One or more of `get` / `post`. At least one is required. |
+
+> **Status:** `WEBHOOK` blocks are fully **parsed and validated** today (see the
+> error catalog above), and are surfaced on the parse result as
+> `webhookEndpoints`. They are **not yet emitted** into the generated server —
+> the construct is reserved for upcoming webhook-triggered workflows. Declaring
+> a webhook has no effect on the generated output for now.

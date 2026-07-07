@@ -4,8 +4,19 @@ import type {
   StepConfig,
   TransformStep,
 } from "../workflow/types.js";
-import { ComposerError, type ComposerWarning, type ComposeStepInput } from "./types.js";
-import { BARE_PARAM_REF_RE, JS_BUILTIN_METHODS, PARAM_REF_RE, STEP_FIELD_ACCESS_RE, STEP_REF_RE, extractTemplateStrings } from "./utils.js";
+import {
+  ComposerError,
+  type ComposerWarning,
+  type ComposeStepInput,
+} from "./types.js";
+import {
+  BARE_PARAM_REF_RE,
+  JS_BUILTIN_METHODS,
+  PARAM_REF_RE,
+  STEP_FIELD_ACCESS_RE,
+  STEP_REF_RE,
+  extractTemplateStrings,
+} from "./utils.js";
 import {
   autoReturnExpression,
   validateSafeExpression,
@@ -90,7 +101,6 @@ export function detectCycles(steps: ComposeStepInput[]): void {
   }
 }
 
-
 export function validateStepConfig(step: ComposeStepInput): void {
   const cfg = step.config;
   switch (cfg.type) {
@@ -155,7 +165,7 @@ export function validateStepConfig(step: ComposeStepInput): void {
       break;
     default:
       throw new ComposerError(
-        `Step "${step.id}": unknown step type "${(cfg as any).type}"`,
+        `Step "${step.id}": unknown step type "${(cfg as StepConfig).type}"`,
       );
   }
 }
@@ -182,8 +192,8 @@ export function validateTemplateReferences(
   const warnings: ComposerWarning[] = [];
   const stepIds = new Set(steps.map((s) => s.id));
   for (const step of steps) {
-    if (step.config.type === "api_call" && (step.config as any).as) {
-      stepIds.add((step.config as any).as);
+    if (step.config.type === "api_call" && step.config.as) {
+      stepIds.add(step.config.as);
     }
   }
   const paramProps = new Set(
@@ -210,9 +220,9 @@ export function validateTemplateReferences(
             const hint = findDomainKeyHint(topField, params);
             throw new ComposerError(
               `Step "${step.id}" references "params.${topField}" but "${topField}" is not in the workflow params schema. Available: ${[...paramProps].join(", ") || "(none)"}` +
-              (hint
-                ? `. Did you mean "params.${hint}.${topField}"? Event params are nested under the domain key.`
-                : ""),
+                (hint
+                  ? `. Did you mean "params.${hint}.${topField}"? Event params are nested under the domain key.`
+                  : ""),
             );
           }
           if (segments.length > 1) {
@@ -237,9 +247,9 @@ export function validateTemplateReferences(
               const hint = findDomainKeyHint(topField, params);
               throw new ComposerError(
                 `Step "${step.id}" references "params.${topField}" but "${topField}" is not in the workflow params schema. Available: ${[...paramProps].join(", ") || "(none)"}` +
-                (hint
-                  ? `. Did you mean "params.${hint}.${topField}"? Event params are nested under the domain key.`
-                  : ""),
+                  (hint
+                    ? `. Did you mean "params.${hint}.${topField}"? Event params are nested under the domain key.`
+                    : ""),
               );
             }
             if (segments.length > 1) {
@@ -321,18 +331,18 @@ export function validateDataFlowTypes(steps: ComposeStepInput[]): void {
         if (outputType === "string") {
           throw new ComposerError(
             `Step "${step.id}" accesses ".${field}" on step "${refStepId}" (${refStep.config.type}), ` +
-            `but ${refStep.config.type} results are plain text strings with no properties. ` +
-            `Fix: (1) Add a systemPrompt to step "${refStepId}" asking the LLM to respond in JSON only, ` +
-            `(2) Add a transform step after "${refStepId}" with expression 'JSON.parse(steps.${refStepId})', ` +
-            `then (3) reference 'steps.<transform_step>.${field}' instead. ` +
-            `Alternatively, evaluate the raw string directly (e.g. 'steps.${refStepId}.includes("...")').`,
+              `but ${refStep.config.type} results are plain text strings with no properties. ` +
+              `Fix: (1) Add a systemPrompt to step "${refStepId}" asking the LLM to respond in JSON only, ` +
+              `(2) Add a transform step after "${refStepId}" with expression 'JSON.parse(steps.${refStepId})', ` +
+              `then (3) reference 'steps.<transform_step>.${field}' instead. ` +
+              `Alternatively, evaluate the raw string directly (e.g. 'steps.${refStepId}.includes("...")').`,
           );
         }
         if (outputType === "boolean") {
           throw new ComposerError(
             `Step "${step.id}" accesses ".${field}" on step "${refStepId}" (conditional), ` +
-            `but conditional results are booleans with no properties. ` +
-            `Use the boolean value directly: 'steps.${refStepId} === true'.`,
+              `but conditional results are booleans with no properties. ` +
+              `Use the boolean value directly: 'steps.${refStepId} === true'.`,
           );
         }
       }
@@ -359,4 +369,3 @@ export function validateSafeWorkflowExpressions(
 }
 
 /** Auto-infer responseSchema for JSON sampling steps from downstream field-access patterns. */
-

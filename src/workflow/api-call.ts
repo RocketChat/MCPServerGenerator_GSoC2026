@@ -45,7 +45,8 @@ function pruneEmptyParams(
   for (const [key, raw] of Object.entries(step.inputMapping)) {
     if (typeof raw !== "string" || !raw.includes("{{")) continue;
     const resolved = payload[key];
-    if (resolved !== "" && resolved !== undefined && resolved !== null) continue;
+    if (resolved !== "" && resolved !== undefined && resolved !== null)
+      continue;
 
     const paramMatch = raw.match(/\{\{\s*params\.(\w+)/);
     const stepMatch = raw.match(/\{\{\s*steps\.(\w+)/);
@@ -103,13 +104,18 @@ async function callOnce(
     );
   }
 
-  if (typeof response.data === "string" && response.data.length > MAX_RESPONSE_BYTES) {
+  if (
+    typeof response.data === "string" &&
+    response.data.length > MAX_RESPONSE_BYTES
+  ) {
     throw new Error(
       `API response for "${step.operationId}" exceeds the 10 MB limit.`,
     );
   }
 
-  return step.outputPath ? extractPath(response.data, step.outputPath) : response.data;
+  return step.outputPath
+    ? extractPath(response.data, step.outputPath)
+    : response.data;
 }
 
 /** Execute an `api_call` step, including its optional `forEach` fan-out. */
@@ -174,7 +180,11 @@ export async function executeApiCall(
     return;
   }
 
-  const payload = resolveMapping(config.inputMapping, state.params, state.steps);
+  const payload = resolveMapping(
+    config.inputMapping,
+    state.params,
+    state.steps,
+  );
   const result = await callOnce(config, payload, state, client, endpoints);
   state.steps[step.id] = result;
   state.status[step.id] = "success";

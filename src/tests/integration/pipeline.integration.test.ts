@@ -183,9 +183,7 @@ describe("composeDsl — parse and compose pipeline", () => {
   it("composes conditional workflows", () => {
     const result = composeDsl(CONDITIONAL_DSL);
     const wf = result.workflows[0];
-    const condStep = wf.steps.find(
-      (s) => s.config.type === "conditional",
-    );
+    const condStep = wf.steps.find((s) => s.config.type === "conditional");
     assert.ok(condStep, "Should have a conditional step");
     assert.equal(condStep!.id, "is_violation");
   });
@@ -239,10 +237,26 @@ describe("generateFromDsl — full generation pipeline", () => {
 describe("generateProject — file structure completeness", () => {
   const composed = composeDsl(MULTI_WORKFLOW_DSL);
   const endpoints: GeneratorEndpoint[] = [
-    { operationId: "post-api-v1-channels_create", method: "POST", path: "/api/v1/channels.create" },
-    { operationId: "post-api-v1-channels_invite", method: "POST", path: "/api/v1/channels.invite" },
-    { operationId: "post-api-v1-chat_postMessage", method: "POST", path: "/api/v1/chat.postMessage" },
-    { operationId: "get-api-v1-channels_history", method: "GET", path: "/api/v1/channels.history" },
+    {
+      operationId: "post-api-v1-channels_create",
+      method: "POST",
+      path: "/api/v1/channels.create",
+    },
+    {
+      operationId: "post-api-v1-channels_invite",
+      method: "POST",
+      path: "/api/v1/channels.invite",
+    },
+    {
+      operationId: "post-api-v1-chat_postMessage",
+      method: "POST",
+      path: "/api/v1/chat.postMessage",
+    },
+    {
+      operationId: "get-api-v1-channels_history",
+      method: "GET",
+      path: "/api/v1/channels.history",
+    },
   ];
 
   const result = generateProject({
@@ -306,7 +320,9 @@ describe("generateProject — file structure completeness", () => {
     const serverFile = result.files.find((f) => f.path === "src/server.ts");
     assert.ok(serverFile);
     const code = serverFile!.content;
-    assert.ok(code.includes("import { McpServer }") || code.includes("McpServer"));
+    assert.ok(
+      code.includes("import { McpServer }") || code.includes("McpServer"),
+    );
     assert.ok(code.includes("StdioServerTransport"));
   });
 
@@ -349,7 +365,11 @@ describe("generateProject — error handling", () => {
 describe("generateProject — generated TypeScript validity", () => {
   const composed = composeDsl(MINIMAL_DSL);
   const endpoints: GeneratorEndpoint[] = [
-    { operationId: "post-api-v1-chat_postMessage", method: "POST", path: "/api/v1/chat.postMessage" },
+    {
+      operationId: "post-api-v1-chat_postMessage",
+      method: "POST",
+      path: "/api/v1/chat.postMessage",
+    },
   ];
 
   const result = generateProject({

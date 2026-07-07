@@ -3,3 +3,6 @@ dist/
 .env
 .cache/
 npm-debug.log*
+
+# Temp output from integration tests that write generated projects to disk
+.tmp-*/

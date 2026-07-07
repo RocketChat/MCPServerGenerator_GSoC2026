@@ -60,7 +60,10 @@ const SAFE_STATIC_CALLS = new Map([
   ["Date", new Set(["now", "parse"])],
   ["JSON", new Set(["parse", "stringify"])],
   ["Math", new Set(Object.getOwnPropertyNames(Math))],
-  ["Number", new Set(["isFinite", "isInteger", "isNaN", "parseFloat", "parseInt"])],
+  [
+    "Number",
+    new Set(["isFinite", "isInteger", "isNaN", "parseFloat", "parseInt"]),
+  ],
   ["Object", new Set(["entries", "fromEntries", "keys", "values"])],
   ["String", new Set(["raw"])],
 ]);
@@ -93,6 +96,10 @@ const BLOCKED_IDENTIFIERS = new Set([
 
 const BLOCKED_PROPERTIES = new Set(["__proto__", "constructor", "prototype"]);
 
+// acorn AST nodes are dynamically shaped; a precise discriminated-union type
+// here would add significant noise without improving the safety analysis, and
+// refactoring this security-critical walker carries more risk than value.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type Node = Record<string, any>;
 
 export function validateSafeExpression(expr: string, context: string): void {
@@ -107,6 +114,7 @@ export function validateSafeExpression(expr: string, context: string): void {
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(
       `Unsafe ${context} expression rejected: "${expr}". ${detail}`,
+      { cause: err },
     );
   }
 }
@@ -284,7 +292,10 @@ function validateNode(node: Node | null | undefined, scope: Scope): void {
   }
 }
 
-function validateList(nodes: Array<Node | null | undefined>, scope: Scope): void {
+function validateList(
+  nodes: Array<Node | null | undefined>,
+  scope: Scope,
+): void {
   for (const child of nodes) validateNode(child, scope);
 }
 
@@ -353,7 +364,9 @@ function validateIdentifier(name: string, scope: Scope): void {
 function validateMutationTarget(node: Node, scope: Scope): void {
   if (node.type === "Identifier") {
     if (!scope.has(node.name)) {
-      reject(`assignment to undeclared identifier "${node.name}" is not allowed`);
+      reject(
+        `assignment to undeclared identifier "${node.name}" is not allowed`,
+      );
     }
     validateIdentifier(node.name, scope);
     return;
@@ -399,15 +412,21 @@ function patternNames(node: Node): string[] {
 
 function memberRootName(node: Node): string | null {
   let current = node;
-  while (current.type === "MemberExpression" || current.type === "ChainExpression") {
-    current = current.type === "ChainExpression" ? current.expression : current.object;
+  while (
+    current.type === "MemberExpression" ||
+    current.type === "ChainExpression"
+  ) {
+    current =
+      current.type === "ChainExpression" ? current.expression : current.object;
   }
   return current.type === "Identifier" ? current.name : null;
 }
 
 function propertyName(node: Node): string | null {
   if (node.computed) {
-    return node.property.type === "Literal" ? String(node.property.value) : null;
+    return node.property.type === "Literal"
+      ? String(node.property.value)
+      : null;
   }
   return node.property.type === "Identifier" ? node.property.name : null;
 }

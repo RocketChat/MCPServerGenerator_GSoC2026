@@ -84,11 +84,11 @@ sequenceDiagram
     G-->>AI: success + project location
 ```
 
-| Tool | Responsibility | Backed by module |
-|------|----------------|------------------|
-| `get_capability_guide` | Discovery: list every endpoint as `summary -> operationId` | `tools/get-capability-guide.ts` |
+| Tool                   | Responsibility                                               | Backed by module                |
+| ---------------------- | ------------------------------------------------------------ | ------------------------------- |
+| `get_capability_guide` | Discovery: list every endpoint as `summary -> operationId`   | `tools/get-capability-guide.ts` |
 | `get_endpoint_schemas` | Detail: return exact request/response schemas for chosen ids | `tools/get-endpoint-schemas.ts` |
-| `generate` | Build a full MCP server project from a DSL string | `tools/generate.ts` |
+| `generate`             | Build a full MCP server project from a DSL string            | `tools/generate.ts`             |
 
 ---
 
@@ -174,15 +174,15 @@ stateDiagram-v2
 
 The "middle-end" — semantic analysis, normalization, validation, and ordering. It takes raw parsed steps and produces a fully validated, dependency-ordered `WorkflowDefinition`.
 
-| File | Responsibility |
-|------|----------------|
-| `composer.ts` | Orchestrates the full validation/normalization pipeline |
-| `dsl-mapping.ts` | Adapts raw DSL workflow objects into the composer's input shape |
-| `validation.ts` | Structural checks: unique ids, required fields, reference integrity, cycles |
-| `normalization.ts` | Auto-fixes common authoring mistakes (template syntax, escaping) |
-| `inference.ts` | Fills in omitted information (conditional targets, implicit dependencies) |
-| `warnings.ts` | Emits non-fatal quality warnings (unused steps, orphans, deep chains) |
-| `types.ts` | Composer-level input/output and warning types |
+| File               | Responsibility                                                              |
+| ------------------ | --------------------------------------------------------------------------- |
+| `composer.ts`      | Orchestrates the full validation/normalization pipeline                     |
+| `dsl-mapping.ts`   | Adapts raw DSL workflow objects into the composer's input shape             |
+| `validation.ts`    | Structural checks: unique ids, required fields, reference integrity, cycles |
+| `normalization.ts` | Auto-fixes common authoring mistakes (template syntax, escaping)            |
+| `inference.ts`     | Fills in omitted information (conditional targets, implicit dependencies)   |
+| `warnings.ts`      | Emits non-fatal quality warnings (unused steps, orphans, deep chains)       |
+| `types.ts`         | Composer-level input/output and warning types                               |
 
 ```mermaid
 flowchart LR
@@ -198,15 +198,15 @@ flowchart LR
 
 The "back-end" — turns a validated `WorkflowDefinition` plus endpoint info into a complete set of project files.
 
-| File | Responsibility |
-|------|----------------|
-| `pipeline.ts` | Full pipeline: DSL -> parsed -> composed -> generated project |
-| `project.ts` | Assembles the complete file set for a project |
-| `codegen.ts` | Generates per-workflow tool files, endpoint maps, server entry |
-| `scaffold.ts` | Static/templated files: REST client, package.json, tsconfig, README |
-| `engine-bundle.ts` | Copies the workflow engine into the output |
-| `dsl-mapping.ts` | Maps DSL structures to generator input |
-| `types.ts` | Generator-level types |
+| File               | Responsibility                                                      |
+| ------------------ | ------------------------------------------------------------------- |
+| `pipeline.ts`      | Full pipeline: DSL -> parsed -> composed -> generated project       |
+| `project.ts`       | Assembles the complete file set for a project                       |
+| `codegen.ts`       | Generates per-workflow tool files, endpoint maps, server entry      |
+| `scaffold.ts`      | Static/templated files: REST client, package.json, tsconfig, README |
+| `engine-bundle.ts` | Copies the workflow engine into the output                          |
+| `dsl-mapping.ts`   | Maps DSL structures to generator input                              |
+| `types.ts`         | Generator-level types                                               |
 
 ```mermaid
 flowchart TB
@@ -222,14 +222,14 @@ flowchart TB
 
 Reads API knowledge from OpenAPI specs and exposes it to the tools.
 
-| File | Responsibility |
-|------|----------------|
-| `spec-source.ts` | Fetches and caches OpenAPI documents (in-memory / disk / remote) |
-| `spec-parser.ts` | Implements `SpecParser`: lists endpoints and returns full endpoint details |
-| `endpoint-extraction.ts` | Extracts compact and full endpoint records from a parsed spec |
-| `schema-mapper.ts` | Converts OpenAPI schemas into JSON-Schema-style shapes |
-| `types.ts` | Domain, endpoint, and parser interface types |
-| `index.ts` | Public surface |
+| File                     | Responsibility                                                             |
+| ------------------------ | -------------------------------------------------------------------------- |
+| `spec-source.ts`         | Fetches and caches OpenAPI documents (in-memory / disk / remote)           |
+| `spec-parser.ts`         | Implements `SpecParser`: lists endpoints and returns full endpoint details |
+| `endpoint-extraction.ts` | Extracts compact and full endpoint records from a parsed spec              |
+| `schema-mapper.ts`       | Converts OpenAPI schemas into JSON-Schema-style shapes                     |
+| `types.ts`               | Domain, endpoint, and parser interface types                               |
+| `index.ts`               | Public surface                                                             |
 
 ```mermaid
 flowchart LR
@@ -246,14 +246,14 @@ flowchart LR
 
 The runtime engine. These files are **copied verbatim into every generated project** — they are both part of this repo and the runtime of the output.
 
-| File | Responsibility |
-|------|----------------|
-| `executor.ts` | The execution loop: step scheduling, branching, error handling |
-| `api-call.ts` | Executes `api_call` steps (payload, request, response parsing) |
-| `sampling.ts` | Executes `sampling` (LLM) steps |
-| `templates.ts` | Evaluates template expressions and resolves `{{...}}` placeholders |
-| `expression-security.ts` | Guards expressions against dangerous patterns (AST allowlist) |
-| `types.ts` | `WorkflowDefinition` / step types shared with codegen |
+| File                     | Responsibility                                                     |
+| ------------------------ | ------------------------------------------------------------------ |
+| `executor.ts`            | The execution loop: step scheduling, branching, error handling     |
+| `api-call.ts`            | Executes `api_call` steps (payload, request, response parsing)     |
+| `sampling.ts`            | Executes `sampling` (LLM) steps                                    |
+| `templates.ts`           | Evaluates template expressions and resolves `{{...}}` placeholders |
+| `expression-security.ts` | Guards expressions against dangerous patterns (AST allowlist)      |
+| `types.ts`               | `WorkflowDefinition` / step types shared with codegen              |
 
 ```mermaid
 flowchart TB
@@ -346,26 +346,26 @@ flowchart LR
     C[conditional<br/>branch on a boolean]
 ```
 
-| Type | Purpose | Required fields | Output |
-|------|---------|-----------------|--------|
-| `api_call` | Call a REST endpoint | `operationId` | Parsed response |
-| `sampling` | LLM reasoning/analysis | `prompt` | Text or JSON |
-| `elicitation` | Ask the user, wait for input | `message`, `requestedSchema` | User response |
-| `transform` | Reshape data | `expression` | Expression result |
-| `conditional` | Branch execution | `condition`, `thenStep` | Boolean |
+| Type          | Purpose                      | Required fields              | Output            |
+| ------------- | ---------------------------- | ---------------------------- | ----------------- |
+| `api_call`    | Call a REST endpoint         | `operationId`                | Parsed response   |
+| `sampling`    | LLM reasoning/analysis       | `prompt`                     | Text or JSON      |
+| `elicitation` | Ask the user, wait for input | `message`, `requestedSchema` | User response     |
+| `transform`   | Reshape data                 | `expression`                 | Expression result |
+| `conditional` | Branch execution             | `condition`, `thenStep`      | Boolean           |
 
 ---
 
 ## 10. Module Responsibility Summary
 
-| Module | Layer | One-line responsibility |
-|--------|-------|-------------------------|
-| `src/index.ts` | Entry | Boot the MCP server over stdio |
-| `src/server.ts` | Entry | Register the three MCP tools (composition root) |
-| `src/tools` | Tool | Request handlers for discovery, schemas, generation |
-| `src/dsl` | Core | Parse DSL text into structured workflows |
-| `src/composer` | Core | Validate, normalize, infer, and order workflows |
-| `src/generator` | Core | Generate and write all project files |
-| `src/parser` | Support | Fetch/parse OpenAPI specs; expose endpoints + schemas |
-| `src/workflow` | Support | Runtime engine (copied into output) |
-| `src/utils` | Support | operationId reconciliation |
+| Module          | Layer   | One-line responsibility                               |
+| --------------- | ------- | ----------------------------------------------------- |
+| `src/index.ts`  | Entry   | Boot the MCP server over stdio                        |
+| `src/server.ts` | Entry   | Register the three MCP tools (composition root)       |
+| `src/tools`     | Tool    | Request handlers for discovery, schemas, generation   |
+| `src/dsl`       | Core    | Parse DSL text into structured workflows              |
+| `src/composer`  | Core    | Validate, normalize, infer, and order workflows       |
+| `src/generator` | Core    | Generate and write all project files                  |
+| `src/parser`    | Support | Fetch/parse OpenAPI specs; expose endpoints + schemas |
+| `src/workflow`  | Support | Runtime engine (copied into output)                   |
+| `src/utils`     | Support | operationId reconciliation                            |

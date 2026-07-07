@@ -147,7 +147,10 @@ export function evaluateExpressionBlock(
   try {
     return runInSandbox(`"use strict"; (${expr});`, sandbox);
   } catch {
-    return runInSandbox(`"use strict"; (function() { ${withReturn} })();`, sandbox);
+    return runInSandbox(
+      `"use strict"; (function() { ${withReturn} })();`,
+      sandbox,
+    );
   }
 }
 

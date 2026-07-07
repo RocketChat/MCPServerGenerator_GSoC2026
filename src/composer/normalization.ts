@@ -7,9 +7,15 @@ import type {
   SamplingStep,
   TransformStep,
 } from "../workflow/types.js";
-import { ComposerError, type ComposerWarning, type ComposeStepInput } from "./types.js";
+import {
+  ComposerError,
+  type ComposerWarning,
+  type ComposeStepInput,
+} from "./types.js";
 
-export function normalizeStepFields(steps: ComposeStepInput[]): ComposerWarning[] {
+export function normalizeStepFields(
+  steps: ComposeStepInput[],
+): ComposerWarning[] {
   const warnings: ComposerWarning[] = [];
   for (const step of steps) {
     const cfg = step.config as unknown as Record<string, unknown>;
@@ -34,7 +40,6 @@ export function normalizeStepFields(steps: ComposeStepInput[]): ComposerWarning[
   }
   return warnings;
 }
-
 
 export function normalizeEventParamShorthand(
   steps: ComposeStepInput[],
@@ -136,7 +141,7 @@ export function normalizeEventParamShorthand(
   }
 
   function rewriteJs(stepId: string, value: string, fieldName: string): string {
-    let result = value;
+    const result = value;
     for (const rule of jsRewriters) {
       if (rule.re.test(result)) {
         warnings.push({
@@ -260,8 +265,8 @@ function convertHandlebarsBlocks(
   if (unsupportedBlock) {
     throw new ComposerError(
       `Step "${stepId}" field "${fieldName}" uses unsupported Handlebars helper "{{#${unsupportedBlock[1]}}}". ` +
-      `The template engine uses {{jsExpression}} syntax. ` +
-      `Use JavaScript expressions instead (e.g. array.map(), ternary operators).`,
+        `The template engine uses {{jsExpression}} syntax. ` +
+        `Use JavaScript expressions instead (e.g. array.map(), ternary operators).`,
     );
   }
 
@@ -274,8 +279,8 @@ function convertHandlebarsBlocks(
     if (/\{\{#(each|if)\b/.test(body)) {
       throw new ComposerError(
         `Step "${stepId}" field "${fieldName}" uses nested Handlebars blocks which cannot be auto-converted. ` +
-        `Use JavaScript expressions instead. Example: ` +
-        `{{${col}.map(item => item.name + ": " + item.value).join("\\n")}}`,
+          `Use JavaScript expressions instead. Example: ` +
+          `{{${col}.map(item => item.name + ": " + item.value).join("\\n")}}`,
       );
     }
 
@@ -316,8 +321,8 @@ function convertHandlebarsBlocks(
     } catch {
       throw new ComposerError(
         `Step "${stepId}" field "${fieldName}": auto-converted Handlebars {{#each}} failed to compile. ` +
-        `Original: "${_.trim()}". Converted: "${expr}". ` +
-        `Use JavaScript expressions directly instead.`,
+          `Original: "${_.trim()}". Converted: "${expr}". ` +
+          `Use JavaScript expressions directly instead.`,
       );
     }
 
@@ -379,7 +384,9 @@ function convertHandlebarsBlocks(
   return result;
 }
 
-export function normalizeTemplateFields(steps: ComposeStepInput[]): ComposerWarning[] {
+export function normalizeTemplateFields(
+  steps: ComposeStepInput[],
+): ComposerWarning[] {
   const warnings: ComposerWarning[] = [];
 
   const asVars = new Set<string>();
@@ -449,7 +456,7 @@ export function normalizeTemplateFields(steps: ComposeStepInput[]): ComposerWarn
   ): unknown {
     if (typeof value === "string") {
       // Detect stringified JSON objects/arrays and parse them back to native types
-      if (/^\s*[\[{]/.test(value)) {
+      if (/^\s*[[{]/.test(value)) {
         try {
           const parsed = JSON.parse(value);
           if (typeof parsed === "object" && parsed !== null) {
@@ -460,7 +467,9 @@ export function normalizeTemplateFields(steps: ComposeStepInput[]): ComposerWarn
             });
             return normalizeValue(stepId, parsed, fieldName);
           }
-        } catch { }
+        } catch {
+          // Not valid JSON — leave the value as a plain string.
+        }
       }
       return normalizeString(stepId, value, fieldName);
     }
@@ -583,7 +592,9 @@ export function normalizeTemplateFields(steps: ComposeStepInput[]): ComposerWarn
   return warnings;
 }
 
-export function flattenNestedSteps(steps: ComposeStepInput[]): ComposerWarning[] {
+export function flattenNestedSteps(
+  steps: ComposeStepInput[],
+): ComposerWarning[] {
   const warnings: ComposerWarning[] = [];
   const extracted: ComposeStepInput[] = [];
 
@@ -615,4 +626,3 @@ export function flattenNestedSteps(steps: ComposeStepInput[]): ComposerWarning[]
   steps.push(...extracted);
   return warnings;
 }
-

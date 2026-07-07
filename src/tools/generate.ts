@@ -33,7 +33,9 @@ export async function handleGenerate(
   try {
     composed = composeDsl(args.dsl);
   } catch (err) {
-    return fail(`DSL error: ${err instanceof Error ? err.message : String(err)}`);
+    return fail(
+      `DSL error: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
 
   if (composed.workflows.length === 0) {
@@ -99,10 +101,14 @@ export async function handleGenerate(
     }`,
   ];
   if (missing.length > 0) {
-    lines.push(`  Unresolved operationIds (verify these): ${missing.join(", ")}`);
+    lines.push(
+      `  Unresolved operationIds (verify these): ${missing.join(", ")}`,
+    );
   }
   if (composed.warnings.length > 0) {
-    lines.push(`  Composer notes (${composed.warnings.length}) — informational:`);
+    lines.push(
+      `  Composer notes (${composed.warnings.length}) — informational:`,
+    );
     for (const w of composed.warnings.slice(0, 10)) {
       lines.push(`    - [${w.code}] ${w.message}`);
     }

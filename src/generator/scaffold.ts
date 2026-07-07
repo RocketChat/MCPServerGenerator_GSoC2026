@@ -133,6 +133,7 @@ export function generatePackageJson(serverName: string): string {
       start: "node --env-file-if-exists=.env --import tsx src/server.ts",
       build: "tsc",
       "start:built": "node dist/server.js",
+      test: 'tsx --test "src/tests/**/*.test.ts"',
     },
     dependencies: {
       "@modelcontextprotocol/sdk": "^1.27.1",
@@ -169,9 +170,16 @@ export function generateTsConfig(): string {
 }
 
 export function generateGitignore(): string {
-  return ["node_modules/", "dist/", ".env", ".env.*", "!.env.example", "*.log", ".DS_Store", ""].join(
-    "\n",
-  );
+  return [
+    "node_modules/",
+    "dist/",
+    ".env",
+    ".env.*",
+    "!.env.example",
+    "*.log",
+    ".DS_Store",
+    "",
+  ].join("\n");
 }
 
 export function generateEnvExample(usesSampling: boolean): string {
@@ -233,6 +241,13 @@ cp .env.example .env   # fill in your Rocket.Chat credentials
 npm start
 \`\`\`
 
+## Development
+
+\`\`\`bash
+npm test         # run the generated workflow smoke tests
+npm run build    # type-check and compile to dist/
+\`\`\`
+
 ## Workflow tools
 
 | Tool | Description | Steps | Features |
@@ -254,7 +269,8 @@ ${serverName}/
 │   ├── rc-client.ts    # Rocket.Chat HTTP client
 │   ├── endpoints.ts    # operationId -> method + path
 │   ├── engine/         # vendored workflow engine
-│   └── tools/          # one file per workflow
+│   ├── tools/          # one file per workflow
+│   └── tests/          # one smoke test per workflow + shared setup
 ├── .env.example
 ├── package.json
 ├── tsconfig.json

@@ -28,11 +28,11 @@ The output is **not** a thin REST wrapper. Each generated tool is a **workflow**
 
 It is itself an MCP server that exposes three tools. An AI client calls them in sequence:
 
-| Tool | Purpose |
-| --- | --- |
-| **`get_capability_guide`** | Discovers and lists the available REST API endpoints |
-| **`get_endpoint_schemas`** | Returns exact request/response schemas for the chosen endpoints |
-| **`generate`** | Validates the described workflows and writes a complete MCP server project |
+| Tool                       | Purpose                                                                    |
+| -------------------------- | -------------------------------------------------------------------------- |
+| **`get_capability_guide`** | Discovers and lists the available REST API endpoints                       |
+| **`get_endpoint_schemas`** | Returns exact request/response schemas for the chosen endpoints            |
+| **`generate`**             | Validates the described workflows and writes a complete MCP server project |
 
 ```
 Describe intent -> get_capability_guide -> get_endpoint_schemas -> generate -> ready to deploy

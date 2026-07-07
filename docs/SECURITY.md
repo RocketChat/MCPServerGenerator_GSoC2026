@@ -16,6 +16,7 @@ flowchart TB
 ```
 
 Three kinds of LLM-authored strings are evaluated as JavaScript:
+
 - **`transform` expressions** — full JS bodies that return a value.
 - **`conditional` conditions** — JS booleans.
 - **`{{...}}` template expressions** — JS evaluated per placeholder.
@@ -26,10 +27,10 @@ Everything else (operationIds, MAP literals, prompts without templates) is inert
 
 ## 2. Defense in Depth
 
-| Layer | Where | What it stops |
-| --- | --- | --- |
-| 1. Parse-time | `dsl/parser.ts` | Structurally invalid steps; MAP heredocs; malformed input |
-| 2. Compose-time AST | `composer/validation.ts` | Unsafe transform/conditional before code is generated |
+| Layer                    | Where                                                       | What it stops                                                   |
+| ------------------------ | ----------------------------------------------------------- | --------------------------------------------------------------- |
+| 1. Parse-time            | `dsl/parser.ts`                                             | Structurally invalid steps; MAP heredocs; malformed input       |
+| 2. Compose-time AST      | `composer/validation.ts`                                    | Unsafe transform/conditional before code is generated           |
 | 3. Runtime AST + sandbox | `workflow/expression-security.ts` + `workflow/templates.ts` | Re-checked on every evaluation, run in isolated VM with timeout |
 
 The same `validateSafeExpression` runs at both compose time and runtime.
@@ -41,6 +42,7 @@ The same `validateSafeExpression` runs at both compose time and runtime.
 `validateSafeExpression` parses the expression with **acorn** and walks the AST. The model is **deny-by-default**: a node type, identifier, property, or call is rejected unless explicitly allowed.
 
 ### 3.1 Allowed
+
 - **Node types**: literals, arrays/objects, member access, conditionals/logical/binary/unary, arrow functions, blocks, if/return, template literals, let/const declarations, spreads.
 - **Globals**: `undefined/null/true/false/NaN/Infinity`, safe call sets.
 - **Identifier calls**: `Boolean`, `Number`, `String`, `parseInt`, `parseFloat`, `isNaN`, `isFinite`, `encodeURIComponent`, `decodeURIComponent`.
@@ -48,6 +50,7 @@ The same `validateSafeExpression` runs at both compose time and runtime.
 - **Instance methods**: common array/string methods (`map`, `filter`, `reduce`, `slice`, `join`, `includes`, `replace`, `split`, `sort`, `toLowerCase`, etc.).
 
 ### 3.2 Blocked
+
 - **Properties**: `__proto__`, `constructor`, `prototype` — prototype-pollution vectors.
 - **`var`** declarations (only `let`/`const`).
 - **Mutation of `params`/`steps`** — only locally declared variables can be assigned.
@@ -60,6 +63,7 @@ The same `validateSafeExpression` runs at both compose time and runtime.
 Validated expressions run in `node:vm` with a constrained context and a hard timeout.
 
 Properties:
+
 - **No Node built-ins** beyond the explicit safe globals — no `require`, `process`, `Buffer`, `fs`, network, timers.
 - **Fresh context per evaluation** (`runInNewContext`) — no shared mutable state.
 - **100ms timeout** — caps runaway loops.
@@ -70,14 +74,14 @@ Properties:
 
 ## 5. Threat Checklist
 
-| Threat | Mitigation | Residual risk |
-| --- | --- | --- |
-| Arbitrary code via transform/conditional | AST allowlist (compose + runtime) + vm + timeout | POC-grade; no formal audit |
-| Prototype pollution / constructor escape | Blocked properties | — |
-| Module/host access (require, process, fetch) | deny-by-default calls + no built-ins in sandbox | — |
-| Infinite loop / DoS in expression | 100ms vm timeout | many steps can still be slow |
-| Reading secrets via process.env | not in sandbox | secrets still live in server env |
-| Oversized / abusive API payloads | field validation | API-side limits still apply |
+| Threat                                       | Mitigation                                       | Residual risk                    |
+| -------------------------------------------- | ------------------------------------------------ | -------------------------------- |
+| Arbitrary code via transform/conditional     | AST allowlist (compose + runtime) + vm + timeout | POC-grade; no formal audit       |
+| Prototype pollution / constructor escape     | Blocked properties                               | —                                |
+| Module/host access (require, process, fetch) | deny-by-default calls + no built-ins in sandbox  | —                                |
+| Infinite loop / DoS in expression            | 100ms vm timeout                                 | many steps can still be slow     |
+| Reading secrets via process.env              | not in sandbox                                   | secrets still live in server env |
+| Oversized / abusive API payloads             | field validation                                 | API-side limits still apply      |
 
 ---
 

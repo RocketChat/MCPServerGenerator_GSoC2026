@@ -15,16 +15,18 @@ A generated project is a complete, self-contained, runnable MCP server. It does 
 │   ├── endpoints.ts              # operationId -> {method, path} registry
 │   ├── rc-client.ts              # REST client (auth, headers)
 │   ├── engine/                   # Runtime workflow engine (copied verbatim)
-│   │   ├── workflow-engine.ts
-│   │   ├── executor.ts
+│   │   ├── types.ts
+│   │   ├── expression-security.ts
+│   │   ├── templates.ts
 │   │   ├── api-call.ts
 │   │   ├── sampling.ts
-│   │   ├── templates.ts
-│   │   └── expression-security.ts
+│   │   ├── executor.ts
+│   │   └── index.ts               # slim engine barrel
 │   ├── tools/
 │   │   └── <workflow>.ts          # One file per workflow (step data + handler)
 │   └── tests/
-│       └── <workflow>.test.ts     # One test file per workflow
+│       ├── setup.ts               # Shared mock client/server/endpoints
+│       └── <workflow>.test.ts     # One smoke test per workflow
 ├── package.json
 ├── tsconfig.json
 ├── .gitignore
@@ -43,17 +45,18 @@ flowchart TB
 
 ## 2. What Each Piece Is
 
-| File / dir | Purpose |
-| --- | --- |
-| `src/server.ts` | Builds an `McpServer`, imports each workflow tool, registers them with input schemas, and connects the transport |
-| `src/endpoints.ts` | The `operationId -> { method, path }` registry |
-| `src/rc-client.ts` | The REST client. Handles auth (tokens or auto-login), header injection |
-| `src/engine/*` | The runtime that interprets step definitions: scheduling, template resolution, sandboxed evaluator, API execution, and sampling |
-| `src/tools/<workflow>.ts` | Per workflow: the step definitions as data, metadata, and a handler that calls `runWorkflow` |
-| `src/tests/*` | Generated tests per workflow |
-| `.env.example` | Template for credentials. Copy to `.env` and fill in |
-| `.gitignore` | Ignores `node_modules`, `dist`, and `.env` |
-| `package.json` | Scripts (`start`, `build`, `test`) and dependencies |
+| File / dir                     | Purpose                                                                                                                              |
+| ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `src/server.ts`                | Builds an `McpServer`, imports each workflow tool, registers them with input schemas, and connects the transport                     |
+| `src/endpoints.ts`             | The `operationId -> { method, path }` registry                                                                                       |
+| `src/rc-client.ts`             | The REST client. Handles auth (tokens or auto-login), header injection                                                               |
+| `src/engine/*`                 | The runtime that interprets step definitions: scheduling, template resolution, sandboxed evaluator, API execution, and sampling      |
+| `src/tools/<workflow>.ts`      | Per workflow: the step definitions as data, metadata, and a handler that calls `runWorkflow`                                         |
+| `src/tests/setup.ts`           | Shared, network-free mocks (client, MCP server, endpoint map) used by the generated tests                                            |
+| `src/tests/<workflow>.test.ts` | Per workflow: a smoke test asserting tool metadata, endpoint wiring, and a full engine run on mock data returns a well-formed result |
+| `.env.example`                 | Template for credentials. Copy to `.env` and fill in                                                                                 |
+| `.gitignore`                   | Ignores `node_modules`, `dist`, and `.env`                                                                                           |
+| `package.json`                 | Scripts (`start`, `build`, `test`) and dependencies                                                                                  |
 
 ---
 
@@ -68,11 +71,11 @@ npm start
 
 `npm start` runs the server from source via `tsx`. The server speaks **stdio** by default — it's meant to be launched by an MCP client.
 
-| Script | Does |
-| --- | --- |
-| `npm start` | Run with tsx (loads .env) |
+| Script          | Does                        |
+| --------------- | --------------------------- |
+| `npm start`     | Run with tsx (loads .env)   |
 | `npm run build` | Compile TypeScript to dist/ |
-| `npm test` | Run the generated tests |
+| `npm test`      | Run the generated tests     |
 
 ---
 
@@ -90,11 +93,10 @@ ROCKETCHAT_PASSWORD=your-password
 # ROCKETCHAT_USER_ID=...
 ```
 
-If a workflow uses `sampling`, AI provider settings are also included:
-
-```env
-# GEMINI_API_KEY=...
-```
+If a workflow uses `sampling`, the generated `.env.example` notes that no extra
+API key is required: sampling steps ask the **connected MCP client's** LLM
+(via MCP sampling), so the client supplies the model. There is no separate AI
+provider key to configure.
 
 ---
 
@@ -108,9 +110,9 @@ The generated README includes ready-to-paste configs:
     "<project-name>": {
       "command": "node",
       "args": ["--env-file-if-exists=.env", "--import", "tsx", "src/server.ts"],
-      "cwd": "/absolute/path/to/<project-name>"
-    }
-  }
+      "cwd": "/absolute/path/to/<project-name>",
+    },
+  },
 }
 ```
 

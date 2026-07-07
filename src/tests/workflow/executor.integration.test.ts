@@ -20,12 +20,27 @@ function makeClient(
     path: string,
     body?: Record<string, unknown>,
   ) => unknown,
-): { client: WorkflowClient; calls: Array<{ method: string; path: string; body?: Record<string, unknown> }> } {
-  const calls: Array<{ method: string; path: string; body?: Record<string, unknown> }> = [];
+): {
+  client: WorkflowClient;
+  calls: Array<{
+    method: string;
+    path: string;
+    body?: Record<string, unknown>;
+  }>;
+} {
+  const calls: Array<{
+    method: string;
+    path: string;
+    body?: Record<string, unknown>;
+  }> = [];
   const client: WorkflowClient = {
     async request(method, path, options) {
       calls.push({ method, path, body: options?.body });
-      return { ok: true, status: 200, data: handler(method, path, options?.body) };
+      return {
+        ok: true,
+        status: 200,
+        data: handler(method, path, options?.body),
+      };
     },
   };
   return { client, calls };
@@ -37,7 +52,10 @@ const silentServer: WorkflowServer = {
   },
 };
 
-function options(client: WorkflowClient, server: WorkflowServer = silentServer): RunWorkflowOptions {
+function options(
+  client: WorkflowClient,
+  server: WorkflowServer = silentServer,
+): RunWorkflowOptions {
   return { client, server, endpoints };
 }
 
@@ -61,7 +79,11 @@ describe("runWorkflow", () => {
         {
           id: "list",
           label: "List channels",
-          config: { type: "api_call", operationId: "channels.list", inputMapping: {} },
+          config: {
+            type: "api_call",
+            operationId: "channels.list",
+            inputMapping: {},
+          },
         },
       ]),
       {},
@@ -76,7 +98,9 @@ describe("runWorkflow", () => {
 
   it("flows data between steps via templates", async () => {
     const { client, calls } = makeClient((_m, path, body) =>
-      path.includes("channels.list") ? { channels: [{ _id: "room42" }] } : { ok: true, echoed: body },
+      path.includes("channels.list")
+        ? { channels: [{ _id: "room42" }] }
+        : { ok: true, echoed: body },
     );
 
     const result = await runWorkflow(
@@ -84,7 +108,12 @@ describe("runWorkflow", () => {
         {
           id: "list",
           label: "List",
-          config: { type: "api_call", operationId: "channels.list", inputMapping: {}, outputPath: "channels" },
+          config: {
+            type: "api_call",
+            operationId: "channels.list",
+            inputMapping: {},
+            outputPath: "channels",
+          },
         },
         {
           id: "post",
@@ -113,7 +142,11 @@ describe("runWorkflow", () => {
         {
           id: "fetch",
           label: "Fetch",
-          config: { type: "api_call", operationId: "channels.list", inputMapping: {} },
+          config: {
+            type: "api_call",
+            operationId: "channels.list",
+            inputMapping: {},
+          },
         },
         {
           id: "double",
@@ -134,7 +167,12 @@ describe("runWorkflow", () => {
       {
         id: "cond",
         label: "Check",
-        config: { type: "conditional", condition: "params.flag === true", thenStep: "yes", elseStep: "no" },
+        config: {
+          type: "conditional",
+          condition: "params.flag === true",
+          thenStep: "yes",
+          elseStep: "no",
+        },
       },
       {
         id: "yes",
@@ -160,7 +198,9 @@ describe("runWorkflow", () => {
   });
 
   it("fans out a forEach api_call", async () => {
-    const { client, calls } = makeClient((_m, _p, body) => ({ posted: body?.roomId }));
+    const { client, calls } = makeClient((_m, _p, body) => ({
+      posted: body?.roomId,
+    }));
     const result = await runWorkflow(
       workflow([
         {
@@ -187,7 +227,9 @@ describe("runWorkflow", () => {
   it("parses JSON sampling output by intent", async () => {
     const server: WorkflowServer = {
       async createMessage() {
-        return { content: { type: "text", text: 'Here you go: {"summary":"done"}' } };
+        return {
+          content: { type: "text", text: 'Here you go: {"summary":"done"}' },
+        };
       },
     };
     const { client } = makeClient(() => ({}));
@@ -196,7 +238,11 @@ describe("runWorkflow", () => {
         {
           id: "sum",
           label: "Summarize",
-          config: { type: "sampling", prompt: "Respond with a JSON object", responseFormat: "json" },
+          config: {
+            type: "sampling",
+            prompt: "Respond with a JSON object",
+            responseFormat: "json",
+          },
         },
       ]),
       {},
@@ -220,7 +266,12 @@ describe("runWorkflow", () => {
         {
           id: "ask",
           label: "Confirm",
-          config: { type: "elicitation", message: "ok?", requestedSchema: { type: "object" }, onDecline: "abort" },
+          config: {
+            type: "elicitation",
+            message: "ok?",
+            requestedSchema: { type: "object" },
+            onDecline: "abort",
+          },
         },
       ]),
       {},
@@ -240,7 +291,11 @@ describe("runWorkflow", () => {
         {
           id: "list",
           label: "List",
-          config: { type: "api_call", operationId: "channels.list", inputMapping: {} },
+          config: {
+            type: "api_call",
+            operationId: "channels.list",
+            inputMapping: {},
+          },
         },
       ]),
       {},

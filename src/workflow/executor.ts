@@ -168,7 +168,10 @@ function shouldRun(
     return false;
   }
 
-  if (stepDeps.length > 0 && stepDeps.every((d) => state.status[d] === "skipped")) {
+  if (
+    stepDeps.length > 0 &&
+    stepDeps.every((d) => state.status[d] === "skipped")
+  ) {
     markSkipped(state, id);
     return false;
   }
@@ -194,7 +197,11 @@ function executeConditional(step: WorkflowStep, state: ExecutionState): void {
   const config = step.config as ConditionalStep;
   let taken: boolean;
   try {
-    taken = evaluateCondition(config.condition || "false", state.params, state.steps);
+    taken = evaluateCondition(
+      config.condition || "false",
+      state.params,
+      state.steps,
+    );
   } catch {
     taken = false;
   }
@@ -232,7 +239,11 @@ async function executeElicitation(
       `Step "${step.id}" requires elicitation but the server does not support it.`,
     );
   }
-  const message = resolveTemplate(config.message || "", state.params, state.steps);
+  const message = resolveTemplate(
+    config.message || "",
+    state.params,
+    state.steps,
+  );
   const result = await server.elicitInput({
     message,
     requestedSchema: config.requestedSchema,
@@ -312,10 +323,18 @@ export async function runWorkflow(
     conditionalSkips: {},
   };
 
-  const runStep = async (step: WorkflowStep): Promise<WorkflowResult | null> => {
+  const runStep = async (
+    step: WorkflowStep,
+  ): Promise<WorkflowResult | null> => {
     switch (step.config.type) {
       case "api_call":
-        await executeApiCall(step, state, options.client, options.endpoints, maxForEach);
+        await executeApiCall(
+          step,
+          state,
+          options.client,
+          options.endpoints,
+          maxForEach,
+        );
         return null;
       case "sampling":
         await executeSampling(step, state, options.server);
@@ -329,9 +348,7 @@ export async function runWorkflow(
         executeConditional(step, state);
         return null;
       default:
-        throw new Error(
-          `Unknown step type for step "${step.id}".`,
-        );
+        throw new Error(`Unknown step type for step "${step.id}".`);
     }
   };
 
@@ -379,7 +396,8 @@ export async function runWorkflow(
       // Conditional/elicitation steps run alone so branch decisions settle
       // before dependents are scheduled; everything else runs in parallel.
       const solo = ready.find(
-        (s) => s.config.type === "conditional" || s.config.type === "elicitation",
+        (s) =>
+          s.config.type === "conditional" || s.config.type === "elicitation",
       );
       const batch = solo ? [solo] : ready;
 
@@ -404,7 +422,9 @@ export async function runWorkflow(
       status: "success",
       completedSteps: state.completed,
       stepResults: state.steps,
-      ...(Object.keys(state.errors).length > 0 ? { stepErrors: state.errors } : {}),
+      ...(Object.keys(state.errors).length > 0
+        ? { stepErrors: state.errors }
+        : {}),
     };
   } catch (err) {
     return {
@@ -412,7 +432,9 @@ export async function runWorkflow(
       error: err instanceof Error ? err.message : String(err),
       completedSteps: state.completed,
       stepResults: state.steps,
-      ...(Object.keys(state.errors).length > 0 ? { stepErrors: state.errors } : {}),
+      ...(Object.keys(state.errors).length > 0
+        ? { stepErrors: state.errors }
+        : {}),
     };
   }
 }

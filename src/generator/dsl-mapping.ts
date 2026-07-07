@@ -1,6 +1,9 @@
 import type { JSONSchema7 } from "json-schema";
 import type { DslStep, DslWorkflow } from "../dsl/types.js";
-import type { ComposeStepInput, ComposeWorkflowInput } from "../composer/types.js";
+import type {
+  ComposeStepInput,
+  ComposeWorkflowInput,
+} from "../composer/types.js";
 import type { StepConfig } from "../workflow/types.js";
 
 /**
@@ -15,7 +18,9 @@ function stepConfig(step: DslStep): StepConfig {
         type: "api_call",
         operationId: step.operationId ?? "",
         inputMapping: step.inputMapping ?? {},
-        ...(step.outputPath !== undefined ? { outputPath: step.outputPath } : {}),
+        ...(step.outputPath !== undefined
+          ? { outputPath: step.outputPath }
+          : {}),
         ...(step.forEach !== undefined ? { forEach: step.forEach } : {}),
         ...(step.as !== undefined ? { as: step.as } : {}),
       };
@@ -24,7 +29,9 @@ function stepConfig(step: DslStep): StepConfig {
         type: "sampling",
         prompt: step.prompt ?? "",
         ...(step.content !== undefined ? { content: step.content } : {}),
-        ...(step.systemPrompt !== undefined ? { systemPrompt: step.systemPrompt } : {}),
+        ...(step.systemPrompt !== undefined
+          ? { systemPrompt: step.systemPrompt }
+          : {}),
         ...(step.maxTokens !== undefined ? { maxTokens: step.maxTokens } : {}),
         ...(step.responseFormat !== undefined
           ? { responseFormat: step.responseFormat as "text" | "json" }
@@ -34,7 +41,9 @@ function stepConfig(step: DslStep): StepConfig {
       return {
         type: "elicitation",
         message: step.message ?? "",
-        requestedSchema: (step.requestedSchema ?? { type: "object" }) as JSONSchema7,
+        requestedSchema: (step.requestedSchema ?? {
+          type: "object",
+        }) as JSONSchema7,
         ...(step.onDecline !== undefined ? { onDecline: step.onDecline } : {}),
       };
     case "transform":
@@ -47,7 +56,9 @@ function stepConfig(step: DslStep): StepConfig {
         ...(step.elseStep !== undefined ? { elseStep: step.elseStep } : {}),
       };
     default:
-      throw new Error(`Unknown DSL step type "${step.type}" in step "${step.id}".`);
+      throw new Error(
+        `Unknown DSL step type "${step.type}" in step "${step.id}".`,
+      );
   }
 }
 
@@ -56,7 +67,9 @@ function toStepInput(step: DslStep): ComposeStepInput {
     id: step.id,
     label: step.label ?? step.id,
     config: stepConfig(step),
-    ...(step.dependsOn && step.dependsOn.length > 0 ? { dependsOn: step.dependsOn } : {}),
+    ...(step.dependsOn && step.dependsOn.length > 0
+      ? { dependsOn: step.dependsOn }
+      : {}),
   };
 }
 
@@ -67,7 +80,10 @@ export function dslWorkflowToComposeInput(
   return {
     name: workflow.name,
     description: workflow.description,
-    params: (workflow.params ?? { type: "object", properties: {} }) as JSONSchema7,
+    params: (workflow.params ?? {
+      type: "object",
+      properties: {},
+    }) as JSONSchema7,
     steps: workflow.steps.map(toStepInput),
   };
 }

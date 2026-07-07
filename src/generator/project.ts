@@ -2,7 +2,9 @@ import { bundleEngine } from "./engine-bundle.js";
 import {
   generateEndpointMap,
   generateServerEntry,
+  generateTestSetup,
   generateToolFile,
+  generateToolTest,
 } from "./codegen.js";
 import {
   generateEnvExample,
@@ -48,22 +50,41 @@ export function generateProject(
   // Vendored engine.
   files.push(...bundleEngine());
 
-  // One tool file per workflow.
+  // One tool file + one test file per workflow.
   for (const workflow of workflows) {
     files.push({
       path: `src/tools/${workflow.name}.ts`,
       content: generateToolFile(workflow),
     });
+    files.push({
+      path: `src/tests/${workflow.name}.test.ts`,
+      content: generateToolTest(workflow),
+    });
   }
 
+  // Shared test setup (mock client/server/endpoints).
+  files.push({ path: "src/tests/setup.ts", content: generateTestSetup() });
+
   // Wiring + scaffolding.
-  files.push({ path: "src/endpoints.ts", content: generateEndpointMap(endpoints) });
+  files.push({
+    path: "src/endpoints.ts",
+    content: generateEndpointMap(endpoints),
+  });
   files.push({ path: "src/rc-client.ts", content: generateRcClient() });
-  files.push({ path: "src/server.ts", content: generateServerEntry(serverName, workflows) });
-  files.push({ path: "package.json", content: generatePackageJson(serverName) });
+  files.push({
+    path: "src/server.ts",
+    content: generateServerEntry(serverName, workflows),
+  });
+  files.push({
+    path: "package.json",
+    content: generatePackageJson(serverName),
+  });
   files.push({ path: "tsconfig.json", content: generateTsConfig() });
   files.push({ path: ".gitignore", content: generateGitignore() });
-  files.push({ path: ".env.example", content: generateEnvExample(usesSampling) });
+  files.push({
+    path: ".env.example",
+    content: generateEnvExample(usesSampling),
+  });
   files.push({
     path: "README.md",
     content: generateReadme(serverName, workflows, endpoints),

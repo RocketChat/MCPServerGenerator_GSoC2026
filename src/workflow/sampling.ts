@@ -10,7 +10,8 @@ export function detectJsonIntent(step: {
   prompt?: string;
   systemPrompt?: string;
 }): boolean {
-  const haystack = `${step.systemPrompt || ""} ${step.prompt || ""}`.toLowerCase();
+  const haystack =
+    `${step.systemPrompt || ""} ${step.prompt || ""}`.toLowerCase();
   return (
     haystack.includes("json") ||
     haystack.includes("respond only with") ||
@@ -99,7 +100,9 @@ export async function executeSampling(
   const config = step.config as SamplingStep;
   const jsonMode =
     config.responseFormat === "json" ||
-    Boolean(config.responseSchema && Object.keys(config.responseSchema).length > 0) ||
+    Boolean(
+      config.responseSchema && Object.keys(config.responseSchema).length > 0,
+    ) ||
     detectJsonIntent(config);
 
   const response = await server.createMessage({

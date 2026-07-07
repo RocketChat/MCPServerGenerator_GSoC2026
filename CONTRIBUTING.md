@@ -31,16 +31,16 @@ npm run build
 
 ## Everyday Commands
 
-| Command | What it does |
-| --- | --- |
-| `npm run dev` | Run the MCP server from source (via `tsx`) for local iteration |
-| `npm start` | Run the compiled server from `dist/` |
-| `npm run build` | Compile TypeScript to `dist/` |
-| `npm run typecheck` | Type-check without emitting files |
-| `npm test` | Run the full unit/integration test suite |
-| `npm run lint` / `npm run lint:fix` | Lint (and auto-fix) with ESLint |
-| `npm run format` / `npm run format:check` | Format (and check) with Prettier |
-| `npm run check` | Everything above, gate-style — run this before pushing |
+| Command                                   | What it does                                                   |
+| ----------------------------------------- | -------------------------------------------------------------- |
+| `npm run dev`                             | Run the MCP server from source (via `tsx`) for local iteration |
+| `npm start`                               | Run the compiled server from `dist/`                           |
+| `npm run build`                           | Compile TypeScript to `dist/`                                  |
+| `npm run typecheck`                       | Type-check without emitting files                              |
+| `npm test`                                | Run the full unit/integration test suite                       |
+| `npm run lint` / `npm run lint:fix`       | Lint (and auto-fix) with ESLint                                |
+| `npm run format` / `npm run format:check` | Format (and check) with Prettier                               |
+| `npm run check`                           | Everything above, gate-style — run this before pushing         |
 
 ## Development Workflow
 
@@ -64,15 +64,15 @@ npm run build
 
 The source is organized by responsibility under `src/`:
 
-| Directory | Responsibility |
-| --- | --- |
-| `src/tools/` | The three MCP tool handlers |
-| `src/dsl/` | DSL parser (scanner + recursive descent parser) |
-| `src/composer/` | Workflow validation, normalization, inference, ordering |
-| `src/generator/` | Code generation pipeline |
-| `src/parser/` | OpenAPI fetch, cache, endpoint extraction |
-| `src/workflow/` | Runtime engine (executor, templates, sandbox, security) |
-| `src/utils/` | operationId resolver |
+| Directory        | Responsibility                                          |
+| ---------------- | ------------------------------------------------------- |
+| `src/tools/`     | The three MCP tool handlers                             |
+| `src/dsl/`       | DSL parser (scanner + recursive descent parser)         |
+| `src/composer/`  | Workflow validation, normalization, inference, ordering |
+| `src/generator/` | Code generation pipeline                                |
+| `src/parser/`    | OpenAPI fetch, cache, endpoint extraction               |
+| `src/workflow/`  | Runtime engine (executor, templates, sandbox, security) |
+| `src/utils/`     | operationId resolver                                    |
 
 For a full explanation of the architecture, read [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 

@@ -4,7 +4,11 @@ import type {
   ConditionalStep,
   SamplingStep,
 } from "../workflow/types.js";
-import { ComposerError, type ComposerWarning, type ComposeStepInput } from "./types.js";
+import {
+  ComposerError,
+  type ComposerWarning,
+  type ComposeStepInput,
+} from "./types.js";
 import { extractStepRefs, findLiteralRid } from "./utils.js";
 
 export function generateSemanticWarnings(
@@ -12,11 +16,10 @@ export function generateSemanticWarnings(
   params?: JSONSchema7,
 ): ComposerWarning[] {
   const warnings: ComposerWarning[] = [];
-  const stepIds = new Set(steps.map((s) => s.id));
   const hasParams =
     params &&
     Object.keys((params.properties as Record<string, unknown>) ?? {}).length >
-    0;
+      0;
 
   const referencedSteps = new Set<string>();
   for (const step of steps) {
@@ -61,8 +64,8 @@ export function generateSemanticWarnings(
       if (!hasTemplateRef && hasParams) {
         throw new ComposerError(
           `Sampling step "${step.id}" prompt does not reference any {{params.*}} or {{steps.*}} data. ` +
-          `The AI will have no input to analyze. Include the relevant data in the prompt ` +
-          `(e.g. {{params.message.text}}).`,
+            `The AI will have no input to analyze. Include the relevant data in the prompt ` +
+            `(e.g. {{params.message.text}}).`,
         );
       }
     }
@@ -194,4 +197,3 @@ export function generateSemanticWarnings(
 
   return warnings;
 }
-
