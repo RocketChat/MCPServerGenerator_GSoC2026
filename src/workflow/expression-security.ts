@@ -60,7 +60,10 @@ const SAFE_STATIC_CALLS = new Map([
   ["Date", new Set(["now", "parse"])],
   ["JSON", new Set(["parse", "stringify"])],
   ["Math", new Set(Object.getOwnPropertyNames(Math))],
-  ["Number", new Set(["isFinite", "isInteger", "isNaN", "parseFloat", "parseInt"])],
+  [
+    "Number",
+    new Set(["isFinite", "isInteger", "isNaN", "parseFloat", "parseInt"]),
+  ],
   ["Object", new Set(["entries", "fromEntries", "keys", "values"])],
   ["String", new Set(["raw"])],
 ]);
@@ -77,47 +80,88 @@ const SAFE_IDENTIFIER_CALLS = new Set([
   "parseInt",
 ]);
 
-const BLOCKED_IDENTIFIERS = new Set([
-  "Function",
-  "arguments",
-  "console",
-  "eval",
-  "global",
-  "globalThis",
-  "import",
-  "module",
-  "process",
-  "require",
-  "window",
+const ALLOWED_GLOBALS = new Set([
+  ...SAFE_IDENTIFIER_CALLS,
+  ...SAFE_STATIC_CALLS.keys(),
+  "undefined",
+  "null",
+  "true",
+  "false",
+  "NaN",
+  "Infinity",
 ]);
 
 const BLOCKED_PROPERTIES = new Set(["__proto__", "constructor", "prototype"]);
 
+/**
+ * Maximum AST nesting depth accepted by {@link validateSafeExpression}.
+ *
+ * `validateNode` is recursive, so a pathologically nested expression could in
+ * principle exhaust the call stack. The surrounding try/catch already converts
+ * any overflow into a rejection, but V8's stack limit is platform-dependent —
+ * this explicit, deterministic bound makes the rejection point predictable and
+ * yields a clear message instead of "Maximum call stack size exceeded". The
+ * limit is far above any realistic hand- or AI-authored expression.
+ */
+const MAX_AST_DEPTH = 500;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- Acorn nodes are inspected structurally by node type.
 type Node = Record<string, any>;
 
-export function validateSafeExpression(expr: string, context: string): void {
+/**
+ * Reject expressions nested deeper than {@link MAX_AST_DEPTH}. Uses an explicit
+ * work stack (no recursion) so the guard itself cannot overflow, and skips
+ * acorn's positional bookkeeping keys so only structural nesting counts.
+ */
+function assertBoundedDepth(ast: Node): void {
+  const stack: Array<{ node: unknown; depth: number }> = [
+    { node: ast, depth: 0 },
+  ];
+  while (stack.length > 0) {
+    const { node, depth } = stack.pop()!;
+    if (depth > MAX_AST_DEPTH) {
+      reject(`expression nesting too deep (max ${MAX_AST_DEPTH})`);
+    }
+    if (!node || typeof node !== "object") continue;
+    for (const key of Object.keys(node as Record<string, unknown>)) {
+      if (key === "type" || key === "start" || key === "end") continue;
+      const child = (node as Record<string, unknown>)[key];
+      if (Array.isArray(child)) {
+        for (const item of child) {
+          if (item && typeof item === "object")
+            stack.push({ node: item, depth: depth + 1 });
+        }
+      } else if (child && typeof child === "object") {
+        stack.push({ node: child, depth: depth + 1 });
+      }
+    }
+  }
+}
+
+export function validateSafeExpression(
+  expr: string,
+  context: string,
+  additionalIdentifiers?: Iterable<string>,
+): void {
   const trimmed = expr.trim();
   if (!trimmed) return;
 
   try {
     const ast = parseAsExpression(trimmed) ?? parseAsProgram(trimmed);
-    const scope = new Scope();
+    assertBoundedDepth(ast);
+    const scope = new Scope(additionalIdentifiers);
     validateNode(ast, scope);
   } catch (err) {
     const detail = err instanceof Error ? err.message : String(err);
     throw new Error(
       `Unsafe ${context} expression rejected: "${expr}". ${detail}`,
+      { cause: err },
     );
   }
 }
 
 export function autoReturnExpression(expr: string): string {
-  try {
-    new Function(`"use strict"; ${expr}`);
-    return expr;
-  } catch {
-    // continue to fixup
-  }
+  if (isValidSyntax(expr)) return expr;
 
   const trimmed = expr.trimEnd();
   if (!trimmed.endsWith("}")) return expr;
@@ -143,11 +187,28 @@ export function autoReturnExpression(expr: string): string {
   const stmtPart = before.endsWith(";") ? before : before + ";";
   const candidate = `${stmtPart} return (${objPart});`;
 
+  if (isValidFunctionBody(candidate)) return candidate;
+  return expr;
+}
+
+function isValidSyntax(code: string): boolean {
   try {
-    new Function(`"use strict"; ${candidate}`);
-    return candidate;
+    parse(code, { ecmaVersion: "latest", sourceType: "script" });
+    return true;
   } catch {
-    return expr;
+    return false;
+  }
+}
+
+function isValidFunctionBody(code: string): boolean {
+  try {
+    parse(`function __check__() { ${code} }`, {
+      ecmaVersion: "latest",
+      sourceType: "script",
+    });
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -179,7 +240,15 @@ function parseAsProgram(expr: string): Node {
 }
 
 class Scope {
-  private readonly frames: Array<Set<string>> = [new Set(["params", "steps"])];
+  private readonly frames: Array<Set<string>>;
+
+  constructor(additionalIdentifiers?: Iterable<string>) {
+    const base = new Set(["params", "steps"]);
+    if (additionalIdentifiers) {
+      for (const id of additionalIdentifiers) base.add(id);
+    }
+    this.frames = [base];
+  }
 
   has(name: string): boolean {
     return this.frames.some((frame) => frame.has(name));
@@ -265,6 +334,7 @@ function validateNode(node: Node | null | undefined, scope: Scope): void {
     case "TemplateLiteral":
       validateList(node.expressions, scope);
       return;
+    case "SpreadElement":
     case "UnaryExpression":
       validateNode(node.argument, scope);
       return;
@@ -284,7 +354,10 @@ function validateNode(node: Node | null | undefined, scope: Scope): void {
   }
 }
 
-function validateList(nodes: Array<Node | null | undefined>, scope: Scope): void {
+function validateList(
+  nodes: Array<Node | null | undefined>,
+  scope: Scope,
+): void {
   for (const child of nodes) validateNode(child, scope);
 }
 
@@ -336,24 +409,27 @@ function validateMemberExpression(node: Node, scope: Scope): void {
   if (property && BLOCKED_PROPERTIES.has(property)) {
     reject(`property "${property}" is not allowed`);
   }
+  if (node.computed && property === null) {
+    reject(
+      "computed property access with dynamic keys is not allowed — use dot notation or a literal key",
+    );
+  }
   validateNode(node.object, scope);
   if (node.computed) validateNode(node.property, scope);
 }
 
 function validateIdentifier(name: string, scope: Scope): void {
-  if (BLOCKED_IDENTIFIERS.has(name)) {
-    reject(`identifier "${name}" is not allowed`);
-  }
-
-  // Unknown identifiers are allowed for generated workflows because the engine
-  // exposes valid param keys and forEach aliases as scoped arguments.
-  if (!scope.has(name)) return;
+  if (scope.has(name)) return;
+  if (ALLOWED_GLOBALS.has(name)) return;
+  reject(`identifier "${name}" is not allowed`);
 }
 
 function validateMutationTarget(node: Node, scope: Scope): void {
   if (node.type === "Identifier") {
     if (!scope.has(node.name)) {
-      reject(`assignment to undeclared identifier "${node.name}" is not allowed`);
+      reject(
+        `assignment to undeclared identifier "${node.name}" is not allowed`,
+      );
     }
     validateIdentifier(node.name, scope);
     return;
@@ -375,10 +451,16 @@ function declarePattern(node: Node, scope: Scope): void {
   for (const name of patternNames(node)) scope.declare(name);
 }
 
+const RESERVED_SCOPE_NAMES = new Set(["params", "steps"]);
+
 function patternNames(node: Node): string[] {
   switch (node.type) {
     case "Identifier":
-      validateIdentifier(node.name, new Scope());
+      if (RESERVED_SCOPE_NAMES.has(node.name)) {
+        reject(
+          `cannot declare variable "${node.name}" — it shadows a reserved name`,
+        );
+      }
       return [node.name];
     case "ArrayPattern":
       return node.elements.flatMap((item: Node | null) =>
@@ -399,15 +481,21 @@ function patternNames(node: Node): string[] {
 
 function memberRootName(node: Node): string | null {
   let current = node;
-  while (current.type === "MemberExpression" || current.type === "ChainExpression") {
-    current = current.type === "ChainExpression" ? current.expression : current.object;
+  while (
+    current.type === "MemberExpression" ||
+    current.type === "ChainExpression"
+  ) {
+    current =
+      current.type === "ChainExpression" ? current.expression : current.object;
   }
   return current.type === "Identifier" ? current.name : null;
 }
 
 function propertyName(node: Node): string | null {
   if (node.computed) {
-    return node.property.type === "Literal" ? String(node.property.value) : null;
+    return node.property.type === "Literal"
+      ? String(node.property.value)
+      : null;
   }
   return node.property.type === "Identifier" ? node.property.name : null;
 }
