@@ -1,9 +1,10 @@
-﻿import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { SpecParser } from "./parser/index.js";
 import type { SpecParserInterface } from "./parser/index.js";
 import { handleGetCapabilityGuide } from "./tools/get-capability-guide.js";
 import { handleGetEndpointSchemas } from "./tools/get-endpoint-schemas.js";
+import { handleGenerate } from "./tools/generate.js";
 
 export function createMcpServer(parser?: SpecParserInterface): {
   server: McpServer;
@@ -48,6 +49,23 @@ export function createMcpServer(parser?: SpecParserInterface): {
     },
     async ({ operationIds }) =>
       handleGetEndpointSchemas(resolvedParser, operationIds),
+  );
+
+  server.registerTool(
+    "generate",
+    {
+      description:
+        "Generate a complete, runnable MCP server project from a workflow DSL document. " +
+        "Call this LAST, after get_capability_guide and get_endpoint_schemas. " +
+        "Pass the full DSL in one call; the endpoints referenced by the workflows are resolved automatically. " +
+        "Writes the project (server entry, Rocket.Chat client, vendored workflow engine, one tool per workflow, README) to disk.",
+      inputSchema: {
+        dsl: z.string(),
+        outputDir: z.string().optional(),
+      },
+    },
+    async ({ dsl, outputDir }) =>
+      handleGenerate(resolvedParser, { dsl, outputDir }),
   );
 
   return { server, parser: resolvedParser };
