@@ -565,7 +565,10 @@ WORKFLOW w
     PROMPT question
     MAX_TOKENS lots
 `;
-      assert.throws(() => parseDsl(dsl), /MAX_TOKENS must be a number/);
+      assert.throws(
+        () => parseDsl(dsl),
+        /MAX_TOKENS must be a positive integer/,
+      );
     });
   });
 
