@@ -1,6 +1,7 @@
 import type { JSONSchema7 } from "json-schema";
 import type {
   ConditionalStep,
+  SamplingStep,
   StepConfig,
   TransformStep,
 } from "../workflow/types.js";
@@ -21,6 +22,7 @@ import {
   autoReturnExpression,
   validateSafeExpression,
 } from "../workflow/expression-security.js";
+import { detectJsonIntent } from "../workflow/json-intent.js";
 
 export function validateUniqueIds(steps: ComposeStepInput[]): void {
   const ids = new Set<string>();
@@ -165,7 +167,7 @@ export function validateStepConfig(step: ComposeStepInput): void {
       break;
     default:
       throw new ComposerError(
-        `Step "${step.id}": unknown step type "${(cfg as StepConfig).type}"`,
+        `Step "${step.id}": unknown step type "${(cfg as { type: string }).type}"`,
       );
   }
 }
@@ -303,16 +305,40 @@ function validateParamSubField(
   return null;
 }
 
-const STEP_OUTPUT_TYPES: Record<
-  StepConfig["type"],
-  "string" | "boolean" | "object" | "unknown"
-> = {
-  sampling: "unknown", // JSON auto-parsed at runtime — may be string or object
+type StepOutputType = "string" | "boolean" | "object" | "unknown";
+
+const STEP_OUTPUT_TYPES: Record<StepConfig["type"], StepOutputType> = {
+  sampling: "unknown", // resolved per-step from JSON mode (see resolveStepOutputType)
   conditional: "boolean",
   api_call: "object",
   elicitation: "object",
   transform: "unknown",
 };
+
+/**
+ * True when a sampling step is meant to yield structured JSON — either because it
+ * explicitly declares `responseFormat: "json"` or because its prompt/systemPrompt
+ * signal JSON intent. This mirrors the runtime decision (the sampling executor
+ * JSON-parses the model output under the same condition), so compose-time
+ * validation and execution agree on whether field access is meaningful.
+ */
+function isJsonModeSampling(cfg: SamplingStep): boolean {
+  return cfg.responseFormat === "json" || detectJsonIntent(cfg);
+}
+
+/**
+ * Resolve a step's effective output type. Sampling is special: its result is a
+ * plain text string unless the step is in JSON mode, in which case the runtime
+ * parses it into an object. Field access is only valid against the object form,
+ * so a plain-text sampling result reports "string" and is rejected by the
+ * data-flow guard below.
+ */
+function resolveStepOutputType(config: StepConfig): StepOutputType {
+  if (config.type === "sampling") {
+    return isJsonModeSampling(config) ? "object" : "string";
+  }
+  return STEP_OUTPUT_TYPES[config.type];
+}
 
 export function validateDataFlowTypes(steps: ComposeStepInput[]): void {
   const stepById = new Map(steps.map((s) => [s.id, s]));
@@ -327,7 +353,7 @@ export function validateDataFlowTypes(steps: ComposeStepInput[]): void {
         const refStep = stepById.get(refStepId);
         if (!refStep) continue;
 
-        const outputType = STEP_OUTPUT_TYPES[refStep.config.type];
+        const outputType = resolveStepOutputType(refStep.config);
         if (outputType === "string") {
           throw new ComposerError(
             `Step "${step.id}" accesses ".${field}" on step "${refStepId}" (${refStep.config.type}), ` +
@@ -368,4 +394,120 @@ export function validateSafeWorkflowExpressions(
   }
 }
 
-/** Auto-infer responseSchema for JSON sampling steps from downstream field-access patterns. */
+/**
+ * Auto-infer a `responseSchema` for JSON-mode sampling steps from the way
+ * downstream steps access their result.
+ *
+ * When a later step reads `steps.<sampling>.<field>` (dot or bracket notation),
+ * the field name — and a coarse type inferred from how it is used — is recorded
+ * on the sampling step's `responseSchema`. This makes the structured shape the
+ * workflow depends on explicit instead of implicit, and lets the runtime/provider
+ * steer the model toward returning those fields. A `SAMPLING_SCHEMA_MISMATCH`
+ * warning is emitted when a consumed field is never mentioned in the prompt, since
+ * the model is then unlikely to produce it.
+ *
+ * Only JSON-mode sampling steps are considered (see {@link isJsonModeSampling});
+ * plain-text sampling steps that are field-accessed are rejected earlier by
+ * {@link validateDataFlowTypes}.
+ */
+export function inferSamplingResponseSchemas(
+  steps: ComposeStepInput[],
+): ComposerWarning[] {
+  const warnings: ComposerWarning[] = [];
+
+  const jsonSamplingIds = new Set<string>();
+  for (const step of steps) {
+    if (step.config.type === "sampling" && isJsonModeSampling(step.config)) {
+      jsonSamplingIds.add(step.id);
+    }
+  }
+  if (jsonSamplingIds.size === 0) return warnings;
+
+  // For each JSON sampling step: field name -> inferred JSON type.
+  const fieldAccesses = new Map<string, Map<string, string>>();
+  for (const id of jsonSamplingIds) fieldAccesses.set(id, new Map());
+
+  // Dot access: steps.X.field or steps.X?.field, optionally followed by a
+  // usage hint (=== bool, .join/.map/.filter/.length) we use to guess the type.
+  const FIELD_CONTEXT_RE =
+    /steps\.(\w+)\??\.(\w+)\s*(?:===\s*(true|false)|\.join\b|\.map\b|\.filter\b|\.length\b|\.includes\b)?/g;
+  // Bracket access: steps.X["field"] or steps.X?.["field"]
+  const BRACKET_ACCESS_RE = /steps\.(\w+)\??\[\s*(['"])(\w+)\2\s*\]/g;
+
+  function classifyField(
+    refId: string,
+    field: string,
+    boolLiteral: string | undefined,
+    tmpl: string,
+    matchStart: number,
+    matchEnd: number,
+  ): void {
+    if (!fieldAccesses.has(refId)) return;
+    if (JS_BUILTIN_METHODS.has(field)) return;
+    const fields = fieldAccesses.get(refId)!;
+    if (fields.has(field)) return;
+
+    let inferredType = "string";
+    if (boolLiteral === "true" || boolLiteral === "false") {
+      inferredType = "boolean";
+    } else if (
+      /\.join\b|\.map\b|\.filter\b|\.length\b/.test(
+        tmpl.slice(matchStart, matchEnd + 10),
+      )
+    ) {
+      inferredType = "array";
+    }
+    fields.set(field, inferredType);
+  }
+
+  for (const step of steps) {
+    const templates = extractTemplateStrings(step.config);
+    for (const tmpl of templates) {
+      for (const match of tmpl.matchAll(FIELD_CONTEXT_RE)) {
+        classifyField(
+          match[1],
+          match[2],
+          match[3],
+          tmpl,
+          match.index!,
+          match.index! + match[0].length,
+        );
+      }
+      for (const match of tmpl.matchAll(BRACKET_ACCESS_RE)) {
+        classifyField(
+          match[1],
+          match[3],
+          undefined,
+          tmpl,
+          match.index!,
+          match.index! + match[0].length,
+        );
+      }
+    }
+  }
+
+  for (const [stepId, fields] of fieldAccesses) {
+    if (fields.size === 0) continue;
+    const step = steps.find((s) => s.id === stepId)!;
+    if (step.config.type !== "sampling") continue;
+    const cfg = step.config;
+
+    const schema: Record<string, string> = {};
+    for (const [name, type] of fields) schema[name] = type;
+    cfg.responseSchema = schema;
+
+    const promptText =
+      `${cfg.prompt || ""} ${cfg.systemPrompt || ""}`.toLowerCase();
+    for (const field of fields.keys()) {
+      if (!promptText.includes(field.toLowerCase())) {
+        warnings.push({
+          stepId,
+          code: "SAMPLING_SCHEMA_MISMATCH",
+          message: `Step "${stepId}" result field "${field}" is used by downstream steps but not mentioned in the sampling prompt — the AI may not include it.`,
+        });
+      }
+    }
+  }
+
+  return warnings;
+}
