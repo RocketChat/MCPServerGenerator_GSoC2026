@@ -2,7 +2,9 @@ import { bundleEngine } from "./engine-bundle.js";
 import {
   generateEndpointMap,
   generateServerEntry,
+  generateTestSetup,
   generateToolFile,
+  generateToolTest,
 } from "./codegen.js";
 import {
   generateEnvExample,
@@ -82,15 +84,23 @@ export function generateProject(
   // Vendored engine.
   files.push(...bundleEngine());
 
-  // One tool file per workflow, keyed by a safe, unique module basename so an
-  // arbitrary workflow name can never break the filename or its import.
+  // One tool file + one test file per workflow, keyed by a safe, unique module
+  // basename so an arbitrary workflow name can never break the filename or its
+  // import.
   const moduleNames = assignModuleNames(workflows);
   workflows.forEach((workflow, i) => {
     files.push({
       path: `src/tools/${moduleNames[i]}.ts`,
       content: generateToolFile(workflow),
     });
+    files.push({
+      path: `src/tests/${moduleNames[i]}.test.ts`,
+      content: generateToolTest(workflow, moduleNames[i]),
+    });
   });
+
+  // Shared test setup (mock client/server/endpoints).
+  files.push({ path: "src/tests/setup.ts", content: generateTestSetup() });
 
   // Wiring + scaffolding.
   files.push({

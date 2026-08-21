@@ -13,7 +13,10 @@ describe("expression sandbox security", () => {
   describe("known escape patterns are rejected", () => {
     const escapes: Array<[string, string]> = [
       ["constructor walk", "({}).constructor.constructor('return 1')()"],
-      ["function constructor", "(function(){}).constructor('return process')()"],
+      [
+        "function constructor",
+        "(function(){}).constructor('return process')()",
+      ],
       ["__proto__ access", "params.__proto__"],
       ["prototype access", "params.constructor.prototype"],
       ["process reference", "process.exit(1)"],
@@ -90,7 +93,11 @@ describe("expression sandbox security", () => {
 
     it("recurses into objects and arrays", () => {
       assert.deepEqual(
-        resolveValue({ who: "{{params.name}}", n: "{{params.count}}" }, params, steps),
+        resolveValue(
+          { who: "{{params.name}}", n: "{{params.count}}" },
+          params,
+          steps,
+        ),
         { who: "Ada", n: 3 },
       );
     });

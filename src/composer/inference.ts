@@ -5,8 +5,16 @@ import type {
   SamplingStep,
   TransformStep,
 } from "../workflow/types.js";
-import { ComposerError, type ComposerWarning, type ComposeStepInput } from "./types.js";
-import { JS_BUILTIN_METHODS, STEP_REF_RE, BARE_STEP_REF_RE, extractStepRefs, extractTemplateStrings } from "./utils.js";
+import {
+  ComposerError,
+  type ComposerWarning,
+  type ComposeStepInput,
+} from "./types.js";
+import {
+  JS_BUILTIN_METHODS,
+  extractStepRefs,
+  extractTemplateStrings,
+} from "./utils.js";
 
 export function inferMissingConditionalTargets(
   steps: ComposeStepInput[],
@@ -34,12 +42,12 @@ export function inferMissingConditionalTargets(
       } else if (candidates.length === 0) {
         throw new ComposerError(
           `Step "${step.id}" (conditional): thenStep is required. ` +
-          `Has elseStep="${cfg.elseStep}" but no other step depends on this conditional to infer thenStep from.`,
+            `Has elseStep="${cfg.elseStep}" but no other step depends on this conditional to infer thenStep from.`,
         );
       } else {
         throw new ComposerError(
           `Step "${step.id}" (conditional): thenStep is required. ` +
-          `Multiple steps depend on it [${candidates.map((s) => s.id).join(", ")}] — specify thenStep explicitly.`,
+            `Multiple steps depend on it [${candidates.map((s) => s.id).join(", ")}] — specify thenStep explicitly.`,
         );
       }
     } else {
@@ -53,12 +61,12 @@ export function inferMissingConditionalTargets(
       } else if (dependents.length === 0) {
         throw new ComposerError(
           `Step "${step.id}" (conditional): thenStep is required. ` +
-          `No steps depend on this conditional — cannot infer thenStep.`,
+            `No steps depend on this conditional — cannot infer thenStep.`,
         );
       } else {
         throw new ComposerError(
           `Step "${step.id}" (conditional): thenStep is required. ` +
-          `Multiple steps depend on it [${dependents.map((s) => s.id).join(", ")}] — specify thenStep explicitly.`,
+            `Multiple steps depend on it [${dependents.map((s) => s.id).join(", ")}] — specify thenStep explicitly.`,
         );
       }
     }
@@ -271,8 +279,6 @@ function rewriteStepRefs(
 
   for (const step of steps) {
     const cfg = step.config;
-    const isJs = cfg.type === "transform" || cfg.type === "conditional";
-    const activeRe = isJs ? jsRe : tmplRe;
 
     switch (cfg.type) {
       case "api_call": {
@@ -335,4 +341,3 @@ function rewriteDeep(value: unknown, re: RegExp): unknown {
   }
   return value;
 }
-

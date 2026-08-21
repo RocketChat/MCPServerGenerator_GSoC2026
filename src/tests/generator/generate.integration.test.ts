@@ -47,11 +47,23 @@ WORKFLOW summarize_channel
 `;
 
 const endpoints = [
-  { operationId: "channels.history", method: "GET", path: "/api/v1/channels.history", summary: "Channel history" },
-  { operationId: "chat.postMessage", method: "POST", path: "/api/v1/chat.postMessage", summary: "Post message" },
+  {
+    operationId: "channels.history",
+    method: "GET",
+    path: "/api/v1/channels.history",
+    summary: "Channel history",
+  },
+  {
+    operationId: "chat.postMessage",
+    method: "POST",
+    path: "/api/v1/chat.postMessage",
+    summary: "Post message",
+  },
 ];
 
-function fileMap(files: { path: string; content: string }[]): Map<string, string> {
+function fileMap(
+  files: { path: string; content: string }[],
+): Map<string, string> {
   return new Map(files.map((f) => [f.path, f.content]));
 }
 
@@ -87,8 +99,14 @@ describe("DSL -> generated MCP server", () => {
   });
 
   it("vendors the real engine source", () => {
-    assert.match(files.get("src/engine/executor.ts")!, /export async function runWorkflow/);
-    assert.match(files.get("src/engine/templates.ts")!, /validateSafeExpression/);
+    assert.match(
+      files.get("src/engine/executor.ts")!,
+      /export async function runWorkflow/,
+    );
+    assert.match(
+      files.get("src/engine/templates.ts")!,
+      /validateSafeExpression/,
+    );
   });
 
   it("wires every workflow tool into the server entry", () => {
@@ -102,7 +120,10 @@ describe("DSL -> generated MCP server", () => {
     const pkg = JSON.parse(files.get("package.json")!);
     assert.equal(pkg.name, "rocketchat_ops");
     assert.ok(pkg.dependencies["@modelcontextprotocol/sdk"]);
-    assert.ok(pkg.dependencies.acorn, "engine needs acorn for expression validation");
+    assert.ok(
+      pkg.dependencies.acorn,
+      "engine needs acorn for expression validation",
+    );
     assert.ok(pkg.dependencies.zod);
   });
 
@@ -122,7 +143,11 @@ describe("DSL -> generated MCP server", () => {
     const client: WorkflowClient = {
       async request(method, path) {
         calls.push(`${method} ${path}`);
-        return { ok: true, status: 200, data: { messages: [{ msg: "hello" }] } };
+        return {
+          ok: true,
+          status: 200,
+          data: { messages: [{ msg: "hello" }] },
+        };
       },
     };
     const server: WorkflowServer = {
@@ -135,11 +160,15 @@ describe("DSL -> generated MCP server", () => {
       "chat.postMessage": { method: "POST", path: "/api/v1/chat.postMessage" },
     };
 
-    const run = await runWorkflow(workflow, { roomId: "room1" }, {
-      client,
-      server,
-      endpoints: endpointInfo,
-    });
+    const run = await runWorkflow(
+      workflow,
+      { roomId: "room1" },
+      {
+        client,
+        server,
+        endpoints: endpointInfo,
+      },
+    );
 
     assert.equal(run.status, "success", JSON.stringify(run));
     assert.deepEqual(run.stepResults.summarize, { summary: "all good" });
@@ -179,8 +208,14 @@ describe("generate tool writes a project to disk", () => {
 
   it("resolves endpoints, generates, and writes files", async () => {
     const response = await handleGenerate(stubParser, { dsl: DSL, outputDir });
-    assert.ok(!("isError" in response && response.isError), response.content[0].text);
-    assert.match(response.content[0].text, /Generated MCP server "rocketchat_ops"/);
+    assert.ok(
+      !("isError" in response && response.isError),
+      response.content[0].text,
+    );
+    assert.match(
+      response.content[0].text,
+      /Generated MCP server "rocketchat_ops"/,
+    );
 
     const root = join(outputDir, "rocketchat_ops");
     assert.ok(existsSync(join(root, "src", "server.ts")));

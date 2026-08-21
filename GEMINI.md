@@ -380,6 +380,7 @@ STEP post_report : api_call
 ```
 
 **Do NOT** put complex logic directly in MAP:
+
 ```
 # ❌ WRONG — MAP does not support heredoc or complex expressions
 MAP text = <<<

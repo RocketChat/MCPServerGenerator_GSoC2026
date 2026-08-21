@@ -113,6 +113,22 @@ function buildSandbox(params: Scope, steps: Scope, locals: Scope = {}): Scope {
   return sandbox;
 }
 
+/** Identifiers in scope for an expression — mirrors the bare names {@link buildSandbox} defines. */
+function getScopeNames(
+  params: Scope,
+  steps: Scope,
+  locals: Scope = {},
+): string[] {
+  const names = new Set<string>(["params", "steps"]);
+  for (const k of Object.keys(params)) {
+    if (isValidName(k)) names.add(k);
+  }
+  for (const k of Object.keys(locals)) {
+    if (isValidName(k)) names.add(k);
+  }
+  return [...names];
+}
+
 function runInSandbox(code: string, sandbox: Scope): unknown {
   return vm.runInNewContext(code, sandbox, { timeout: VM_TIMEOUT_MS });
 }
@@ -124,7 +140,11 @@ export function evaluateExpression(
   steps: Scope,
   locals: Scope = {},
 ): unknown {
-  validateSafeExpression(expr, "expression");
+  validateSafeExpression(
+    expr,
+    "expression",
+    getScopeNames(params, steps, locals),
+  );
   const sandbox = buildSandbox(params, steps, locals);
   return runInSandbox(`"use strict"; (${expr});`, sandbox);
 }
@@ -141,13 +161,17 @@ export function evaluateExpressionBlock(
   locals: Scope = {},
 ): unknown {
   const withReturn = autoReturnExpression(expr);
-  validateSafeExpression(expr, "transform");
-  validateSafeExpression(withReturn, "transform");
+  const scopeNames = getScopeNames(params, steps, locals);
+  validateSafeExpression(expr, "transform", scopeNames);
+  validateSafeExpression(withReturn, "transform", scopeNames);
   const sandbox = buildSandbox(params, steps, locals);
   try {
     return runInSandbox(`"use strict"; (${expr});`, sandbox);
   } catch {
-    return runInSandbox(`"use strict"; (function() { ${withReturn} })();`, sandbox);
+    return runInSandbox(
+      `"use strict"; (function() { ${withReturn} })();`,
+      sandbox,
+    );
   }
 }
 
@@ -157,7 +181,7 @@ export function evaluateCondition(
   params: Scope,
   steps: Scope,
 ): boolean {
-  validateSafeExpression(expr, "conditional");
+  validateSafeExpression(expr, "conditional", getScopeNames(params, steps));
   const sandbox = buildSandbox(params, steps);
   return runInSandbox(`"use strict"; !!(${expr});`, sandbox) as boolean;
 }
@@ -247,11 +271,12 @@ export function resolveTemplate(
 ): string {
   const cleaned = cleanTemplate(template);
   const sandbox = buildSandbox(params, steps, locals);
+  const scopeNames = getScopeNames(params, steps, locals);
 
   const resolveExpr = (rawExpr: string, match: string): string => {
     const expr = rawExpr.trim();
     try {
-      validateSafeExpression(expr, "template");
+      validateSafeExpression(expr, "template", scopeNames);
       const val = runInSandbox(`"use strict"; (${expr});`, sandbox);
       return typeof val === "object" && val !== null
         ? JSON.stringify(val)

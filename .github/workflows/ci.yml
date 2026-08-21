@@ -3,8 +3,10 @@ name: CI
 on:
   push:
     branches: [main]
+  # Run on every PR, including stacked PRs that target feature branches (not
+  # only PRs into main), so format/lint/typecheck/test/build issues are caught
+  # early while the repo grows.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
